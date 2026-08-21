@@ -1,0 +1,253 @@
+:root {
+	--bg: #eef1f0;
+	--panel: #fbfdfc;
+	--border: #d4dbd8;
+	--text: #12201d;
+	--muted: #5c6b66;
+	--accent: #0f7a6c;
+	--accent-fg: #fff;
+	--critical: #91243e;
+	--high: #dd4b50;
+	--medium: #f18c43;
+	--low: #f8c851;
+	--info: #67ace1;
+	--code-bg: #e4e9e7;
+	--ok: #0f7a4a;
+	--err: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--bg: #0b1210;
+		--panel: #111b18;
+		--border: #22302b;
+		--text: #dce7e3;
+		--muted: #7e938c;
+		--code-bg: #0e1815;
+		--accent: #3ecdb4;
+		--ok: #3ecd8a;
+		--err: #ef7167;
+	}
+}
+
+:root[data-theme='dark'] {
+	--bg: #0b1210;
+	--panel: #111b18;
+	--border: #22302b;
+	--text: #dce7e3;
+	--muted: #7e938c;
+	--code-bg: #0e1815;
+	--accent: #3ecdb4;
+	--ok: #3ecd8a;
+	--err: #ef7167;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: 'IBM Plex Sans', 'IBM Plex Sans Thai', -apple-system, 'Segoe UI', sans-serif;
+}
+
+code,
+.mono {
+	font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+}
+
+a {
+	color: var(--accent);
+}
+
+.wrap {
+	max-width: 1000px;
+	margin: 0 auto;
+	padding: 2rem 1.25rem;
+}
+
+.eyebrow {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 0.72rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--accent);
+	margin: 0 0 0.4rem;
+	font-weight: 500;
+}
+
+h1 {
+	font-size: 1.5rem;
+	margin: 0 0 0.3rem;
+	font-weight: 700;
+	text-wrap: balance;
+	letter-spacing: -0.01em;
+}
+
+h2 {
+	font-size: 1rem;
+	margin: 0;
+}
+
+p.sub {
+	color: var(--muted);
+	margin: 0 0 1.5rem;
+	font-size: 0.92rem;
+	max-width: 62ch;
+}
+
+.panel {
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 1.25rem;
+	margin-bottom: 1.25rem;
+}
+
+button,
+.button {
+	font: inherit;
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: var(--panel);
+	color: var(--text);
+	padding: 0.5rem 0.9rem;
+	border-radius: 8px;
+	transition: 0.15s;
+	text-decoration: none;
+	display: inline-block;
+}
+
+button:hover,
+.button:hover {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+button.primary {
+	background: var(--accent);
+	color: var(--accent-fg);
+	border-color: var(--accent);
+}
+
+button.primary:hover {
+	opacity: 0.9;
+	color: var(--accent-fg);
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.status {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin: 0.75rem 0;
+	font-size: 0.9rem;
+	flex-wrap: wrap;
+}
+
+.badge {
+	padding: 0.15rem 0.55rem;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+.badge.ok {
+	background: rgba(22, 163, 74, 0.12);
+	color: var(--ok);
+}
+
+.badge.err {
+	background: rgba(220, 38, 38, 0.12);
+	color: var(--err);
+}
+
+.badge.nessus {
+	background: rgba(103, 172, 225, 0.15);
+	color: #3d7fb5;
+}
+
+.badge.zap {
+	background: rgba(220, 75, 80, 0.12);
+	color: #b23a3f;
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.85rem;
+}
+
+th,
+td {
+	border-bottom: 1px solid var(--border);
+	text-align: left;
+	padding: 0.5rem 0.6rem;
+	vertical-align: top;
+}
+
+th {
+	color: var(--muted);
+	font-weight: 600;
+	font-size: 0.75rem;
+	text-transform: uppercase;
+}
+
+tr:hover td {
+	background: rgba(37, 99, 235, 0.04);
+}
+
+.sev {
+	display: inline-block;
+	padding: 0.1rem 0.5rem;
+	border-radius: 5px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	color: #fff;
+}
+
+.sev.critical {
+	background: var(--critical);
+}
+.sev.high {
+	background: var(--high);
+}
+.sev.medium {
+	background: var(--medium);
+	color: #3a2600;
+}
+.sev.low {
+	background: var(--low);
+	color: #3a2600;
+}
+.sev.info {
+	background: var(--info);
+}
+
+.scroll {
+	overflow-x: auto;
+}
+
+.err-box {
+	background: rgba(220, 38, 38, 0.08);
+	border: 1px solid rgba(220, 38, 38, 0.3);
+	color: var(--err);
+	padding: 0.9rem 1rem;
+	border-radius: 8px;
+	font-size: 0.85rem;
+	white-space: pre-wrap;
+	font-family: monospace;
+}
+
+.empty {
+	color: var(--muted);
+	text-align: center;
+	padding: 2rem;
+	font-size: 0.9rem;
+}

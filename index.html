@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Scan Report Normalizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#eef1f0; --panel:#fbfdfc; --border:#d4dbd8; --text:#12201d; --muted:#5c6b66;
+    --accent:#0f7a6c; --accent-fg:#fff;
+    --critical:#91243E; --high:#DD4B50; --medium:#F18C43; --low:#F8C851; --info:#67ACE1;
+    --code-bg:#e4e9e7; --ok:#0f7a4a; --err:#b3261e;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0b1210; --panel:#111b18; --border:#22302b; --text:#dce7e3; --muted:#7e938c;
+      --code-bg:#0e1815; --accent:#3ecdb4; --ok:#3ecd8a; --err:#ef7167;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b1210; --panel:#111b18; --border:#22302b; --text:#dce7e3; --muted:#7e938c;
+    --code-bg:#0e1815; --accent:#3ecdb4; --ok:#3ecd8a; --err:#ef7167;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"IBM Plex Sans","IBM Plex Sans Thai",-apple-system,"Segoe UI",sans-serif;
+    padding:2rem 1.25rem;
+  }
+  code, .mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+  .wrap{max-width:1000px;margin:0 auto}
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:.72rem; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 .4rem; font-weight:500;
+  }
+  h1{font-size:1.5rem;margin:0 0 .3rem;font-weight:700;text-wrap:balance;letter-spacing:-.01em}
+  p.sub{color:var(--muted);margin:0 0 1.5rem;font-size:.92rem;max-width:62ch}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem}
+  .drop{
+    border:2px dashed var(--border); border-radius:10px; padding:2rem; text-align:center;
+    cursor:pointer; transition:.15s; color:var(--muted);
+  }
+  .drop:hover, .drop.drag{border-color:var(--accent); color:var(--accent); background:rgba(37,99,235,.05)}
+  .drop input{display:none}
+  .samples{display:flex;gap:.5rem;margin-top:.75rem;flex-wrap:wrap;justify-content:center}
+  button{
+    font:inherit; cursor:pointer; border:1px solid var(--border); background:var(--panel);
+    color:var(--text); padding:.5rem .9rem; border-radius:8px; transition:.15s;
+  }
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+  button.primary:hover{opacity:.9;color:var(--accent-fg)}
+  .status{display:flex;align-items:center;gap:.5rem;margin:.75rem 0;font-size:.9rem}
+  .badge{padding:.15rem .55rem;border-radius:999px;font-size:.75rem;font-weight:600}
+  .badge.ok{background:rgba(22,163,74,.12);color:var(--ok)}
+  .badge.err{background:rgba(220,38,38,.12);color:var(--err)}
+  .badge.nessus{background:rgba(103,172,225,.15);color:#3d7fb5}
+  .badge.zap{background:rgba(220,75,80,.12);color:#b23a3f}
+  table{width:100%;border-collapse:collapse;font-size:.85rem}
+  th,td{border-bottom:1px solid var(--border);text-align:left;padding:.5rem .6rem;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.75rem;text-transform:uppercase}
+  tr:hover td{background:rgba(37,99,235,.04)}
+  .sev{display:inline-block;padding:.1rem .5rem;border-radius:5px;font-size:.75rem;font-weight:700;color:#fff}
+  .sev.critical{background:var(--critical)}
+  .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium);color:#3a2600}
+  .sev.low{background:var(--low);color:#3a2600}
+  .sev.info{background:var(--info)}
+  details{max-width:340px}
+  details summary{cursor:pointer;color:var(--muted)}
+  pre{
+    background:var(--code-bg);border-radius:8px;padding:.75rem;max-height:220px;overflow:auto;
+    font-size:.75rem;white-space:pre-wrap;word-break:break-word;margin:1rem 0 0;
+  }
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.75rem}
+  .toolbar h2{font-size:1rem;margin:0}
+  .empty{color:var(--muted);text-align:center;padding:2rem;font-size:.9rem}
+  .scroll{overflow-x:auto}
+  .err-box{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);color:var(--err);
+    padding:.9rem 1rem;border-radius:8px;font-size:.85rem;white-space:pre-wrap;font-family:monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">nessus · zap → unified json</p>
+  <h1>Scan Report Normalizer</h1>
+  <p class="sub">แปลง Nessus / OWASP ZAP native HTML export ให้เป็น JSON schema เดียวกัน — parse ในเบราว์เซอร์ล้วน ไฟล์ไม่ถูกส่งออกไปที่ไหน</p>
+
+  <div class="panel">
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".html,.htm">
+      <div id="dropLabel">📄 คลิกหรือลากไฟล์ HTML export มาวางที่นี่</div>
+    </label>
+    <div class="samples">
+      <button id="sampleNessus">โหลด sample: Nessus</button>
+      <button id="sampleZap">โหลด sample: ZAP</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="panel" id="resultsPanel" style="display:none">
+    <div class="toolbar">
+      <h2 id="resultTitle">ผลลัพธ์</h2>
+      <button id="downloadJson" class="primary">ดาวน์โหลด JSON</button>
+    </div>
+    <div class="scroll">
+      <table id="resultTable">
+        <thead>
+          <tr>
+            <th>Severity</th><th>Identifier</th><th>Title</th><th>Target / URL</th>
+            <th>CVSS</th><th>CVE</th><th>Raw</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="errorPanel"></div>
+</div>
+
+<script>
+// ---------- Parser core (mirrors prompt.md spec) ----------
+
+function detectReportType(doc, sourceLabel) {
+  const headText = (doc.head ? doc.head.textContent : '') + ' ' + (doc.title || '');
+  const bodyText = doc.body ? doc.body.textContent.slice(0, 3000) : '';
+  const combined = headText + ' ' + bodyText;
+  if (/Tenable Nessus/i.test(combined)) return 'nessus';
+  if (/OWASP ZAP/i.test(combined)) return 'zap';
+  throw new Error(
+    `detectReportType: ไม่พบ signature ของ Nessus ("Tenable Nessus") หรือ ZAP ("OWASP ZAP") ` +
+    `ใน ${sourceLabel} — ไฟล์อาจไม่ใช่ native export ที่รองรับ หรือ version เปลี่ยน format`
+  );
+}
+
+const NESSUS_COLOR_TO_SEVERITY = {
+  '#91243E': 'critical',
+  '#DD4B50': 'high',
+  '#F18C43': 'medium',
+  '#F8C851': 'low',
+  '#67ACE1': 'info',
+};
+
+function parseNessusHtml(doc, sourceLabel) {
+  // target hostname: first div with font-size:22px + font-weight:700
+  let target = null;
+  const candidates = Array.from(doc.querySelectorAll('div'));
+  for (const el of candidates) {
+    const style = (el.getAttribute('style') || '').replace(/\s/g, '').toLowerCase();
+    if (style.includes('font-size:22px') && style.includes('font-weight:700')) {
+      target = el.textContent.trim();
+      break;
+    }
+  }
+  if (!target) {
+    throw new Error(`parseNessusHtml: ไม่พบ target hostname (div font-size:22px;font-weight:700) ใน ${sourceLabel}`);
+  }
+
+  // finding divs: id starts with "id" and NOT ending with "-container", has inline background color
+  const findingDivs = candidates.filter(el => {
+    const id = el.id || '';
+    if (!id || id.endsWith('-container')) return false;
+    const style = el.getAttribute('style') || '';
+    return /background\s*:\s*#[0-9a-fA-F]{6}/.test(style);
+  });
+
+  if (findingDivs.length === 0) {
+    throw new Error(`parseNessusHtml: ไม่พบ finding div ที่มี id + inline background color ใน ${sourceLabel} — โครงสร้างอาจเปลี่ยนไป`);
+  }
+
+  const results = [];
+
+  for (const div of findingDivs) {
+    const style = div.getAttribute('style') || '';
+    const colorMatch = style.match(/background\s*:\s*(#[0-9a-fA-F]{6})/);
+    const color = colorMatch ? colorMatch[1].toUpperCase() : null;
+    const severity = color ? NESSUS_COLOR_TO_SEVERITY[color] : undefined;
+    if (!severity) {
+      throw new Error(`parseNessusHtml: สีที่ไม่รู้จัก "${color}" บน div#${div.id} ใน ${sourceLabel} — ต้องอัพเดท color mapping`);
+    }
+
+    const titleText = div.textContent.trim();
+    const m = titleText.match(/^(\S+)\s*-\s*(.+)$/);
+    if (!m) {
+      throw new Error(`parseNessusHtml: title "${titleText}" ของ div#${div.id} ไม่ตรงรูปแบบ "{plugin_id} - {plugin_name}" ใน ${sourceLabel}`);
+    }
+    const [, pluginId, pluginName] = m;
+
+    const container = doc.getElementById(`${div.id}-container`);
+    if (!container) {
+      throw new Error(`parseNessusHtml: ไม่พบ container "#${div.id}-container" คู่กับ div#${div.id} ใน ${sourceLabel}`);
+    }
+
+    const details = {};
+    const headers = Array.from(container.querySelectorAll('.details-header'));
+    for (const header of headers) {
+      const label = header.textContent.trim();
+      const content = header.nextElementSibling;
+      details[label] = content ? content.textContent.trim() : '';
+    }
+
+    const cvssRaw = details['CVSS v3.0 Base Score'] ?? details['CVSS v2.0 Base Score'] ?? null;
+    const cvssScore = cvssRaw != null ? parseFloat(cvssRaw) : null;
+
+    results.push({
+      source_tool: 'nessus',
+      target,
+      identifier: pluginId,
+      title: pluginName.trim(),
+      severity,
+      description: details['Description'] || '',
+      solution: details['Solution'] || '',
+      cvss_score: Number.isFinite(cvssScore) ? cvssScore : null,
+      cve: details['CVE'] || null,
+      affected_url_or_port: target,
+      raw_evidence: div.outerHTML + (container ? container.outerHTML : ''),
+    });
+  }
+
+  return results;
+}
+
+const ZAP_RISK_TO_SEVERITY = {
+  high: 'high', medium: 'medium', low: 'low', informational: 'info',
+};
+
+function parseZapHtml(doc, sourceLabel) {
+  // Each alert instance = a <table> containing a row whose first cell is "alertHead"
+  const tables = Array.from(doc.querySelectorAll('table')).filter(t => {
+    const firstCell = t.querySelector('td.alertHead, tr td');
+    return t.querySelector('td.alertHead') !== null;
+  });
+
+  if (tables.length === 0) {
+    throw new Error(`parseZapHtml: ไม่พบ alert table (td.alertHead) ใน ${sourceLabel} — โครงสร้าง ZAP export อาจเปลี่ยนไป, ต้อง inspect ไฟล์จริงใหม่`);
+  }
+
+  const results = [];
+
+  for (const table of tables) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const fields = {};
+    let alertName = null;
+
+    for (const row of rows) {
+      const cells = Array.from(row.querySelectorAll('td'));
+      if (cells.length === 0) continue;
+      if (cells[0].classList.contains('alertHead')) {
+        alertName = cells[0].textContent.trim();
+        continue;
+      }
+      if (cells.length >= 2) {
+        const label = cells[0].textContent.trim();
+        const value = cells[1].textContent.trim();
+        fields[label] = value;
+      }
+    }
+
+    if (!alertName) {
+      throw new Error(`parseZapHtml: พบ table แต่ไม่มี alert name (td.alertHead) ใน ${sourceLabel}`);
+    }
+    if (!fields['Risk']) {
+      throw new Error(`parseZapHtml: alert "${alertName}" ไม่มี field "Risk" ใน ${sourceLabel}`);
+    }
+
+    const riskKey = fields['Risk'].toLowerCase();
+    const severity = ZAP_RISK_TO_SEVERITY[riskKey];
+    if (!severity) {
+      throw new Error(`parseZapHtml: Risk value "${fields['Risk']}" ของ alert "${alertName}" ไม่รู้จัก ใน ${sourceLabel}`);
+    }
+
+    results.push({
+      source_tool: 'zap',
+      target: fields['URL'] ? new URL(fields['URL'], 'http://placeholder').origin : null,
+      identifier: alertName,
+      title: alertName,
+      severity,
+      description: fields['Description'] || '',
+      solution: fields['Solution'] || '',
+      cvss_score: null,
+      cve: null,
+      affected_url_or_port: fields['URL'] || '',
+      confidence: fields['Confidence'] || null,
+      raw_evidence: table.outerHTML,
+    });
+  }
+
+  return results;
+}
+
+function parseReport(htmlText, sourceLabel) {
+  const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+  const type = detectReportType(doc, sourceLabel);
+  const findings = type === 'nessus' ? parseNessusHtml(doc, sourceLabel) : parseZapHtml(doc, sourceLabel);
+  return { type, findings };
+}
+
+// ---------- UI wiring ----------
+
+const el = id => document.getElementById(id);
+let lastResult = null;
+
+function showError(msg) {
+  el('resultsPanel').style.display = 'none';
+  el('status').innerHTML = `<span class="badge err">Parse failed</span>`;
+  el('errorPanel').innerHTML = `<div class="err-box">${msg.replace(/</g,'&lt;')}</div>`;
+}
+
+function severityBadge(s) {
+  return `<span class="sev ${s}">${s}</span>`;
+}
+
+function renderResults(type, findings, sourceLabel) {
+  el('errorPanel').innerHTML = '';
+  const badgeClass = type === 'nessus' ? 'nessus' : 'zap';
+  el('status').innerHTML =
+    `<span class="badge ok">Parsed OK</span>` +
+    `<span class="badge ${badgeClass}">${type.toUpperCase()}</span>` +
+    `<span style="color:var(--muted)">${sourceLabel} · ${findings.length} finding(s)</span>`;
+
+  el('resultTitle').textContent = `ผลลัพธ์ (${findings.length} findings)`;
+  const tbody = el('resultBody');
+  tbody.innerHTML = '';
+
+  if (findings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">ไม่พบ finding</td></tr>`;
+  }
+
+  for (const f of findings) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${severityBadge(f.severity)}</td>
+      <td class="mono">${f.identifier}</td>
+      <td>${f.title}</td>
+      <td class="mono" style="max-width:220px;word-break:break-word">${f.affected_url_or_port || f.target || ''}</td>
+      <td class="mono" style="font-variant-numeric:tabular-nums">${f.cvss_score ?? '—'}</td>
+      <td class="mono">${f.cve ?? '—'}</td>
+      <td><details><summary>ดู raw</summary><pre>${(f.raw_evidence||'').slice(0,1500).replace(/</g,'&lt;')}</pre></details></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  el('resultsPanel').style.display = 'block';
+  lastResult = { type, findings };
+}
+
+function handleText(htmlText, sourceLabel) {
+  try {
+    const { type, findings } = parseReport(htmlText, sourceLabel);
+    renderResults(type, findings, sourceLabel);
+  } catch (e) {
+    lastResult = null;
+    el('resultsPanel').style.display = 'none';
+    showError(e.message);
+  }
+}
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => handleText(reader.result, file.name);
+  reader.readAsText(file, 'utf-8');
+}
+
+el('file').addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+const drop = el('drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+el('downloadJson').addEventListener('click', async () => {
+  if (!lastResult) return;
+  const json = JSON.stringify(lastResult.findings, null, 2);
+  const downloads = window.claude ? await claude.use('downloads') : null;
+  if (downloads) {
+    try {
+      await downloads.save({ filename: `${lastResult.type}_findings.json`, data: json });
+    } catch (e) {
+      if (e && e.code !== 'declined') alert('บันทึกไฟล์ไม่สำเร็จ: ' + (e.message || e.code));
+    }
+    return;
+  }
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${lastResult.type}_findings.json`;
+  a.click();
+});
+
+// Embedded sample HTML (so the demo works standalone without needing external files)
+const SAMPLE_NESSUS = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Tenable Nessus Report</title></head>
+<body>
+<div style="font-size:22px;font-weight:700">webserver01.example.com</div>
+
+<div id="id1" style="background: #91243E">10114 - ICMP Timestamp Request Remote Date Disclosure</div>
+<div id="id1-container">
+  <div class="details-header">Synopsis</div>
+  <div>It is possible to determine the exact time set on the remote host.</div>
+  <div class="details-header">Description</div>
+  <div>The remote host responds to ICMP timestamp requests. This allows an attacker to determine the system time of the remote host.</div>
+  <div class="details-header">Solution</div>
+  <div>Filter out ICMP timestamp requests (13) and the corresponding outgoing responses (14).</div>
+  <div class="details-header">Risk Factor</div>
+  <div>Critical</div>
+  <div class="details-header">CVSS v3.0 Base Score</div>
+  <div>9.8</div>
+  <div class="details-header">CVE</div>
+  <div>CVE-2020-12345</div>
+</div>
+
+<div id="id2" style="background: #DD4B50">22964 - Service Detection</div>
+<div id="id2-container">
+  <div class="details-header">Synopsis</div>
+  <div>A service is running on this port.</div>
+  <div class="details-header">Description</div>
+  <div>It was possible to identify the service by its banner or by looking at the response to a few probes.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>High</div>
+</div>
+
+<div id="id3" style="background: #67ACE1">19506 - Nessus Scan Information</div>
+<div id="id3-container">
+  <div class="details-header">Synopsis</div>
+  <div>This plugin displays information about the Nessus scan.</div>
+  <div class="details-header">Description</div>
+  <div>This plugin displays, for each tested host, information about the scan itself.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>None</div>
+</div>
+
+<div id="id3" style="background: #67ACE1">19506 - Nessus Scan Information</div>
+<div id="id3-container">
+  <div class="details-header">Synopsis</div>
+  <div>This plugin displays information about the Nessus scan.</div>
+  <div class="details-header">Description</div>
+  <div>Second port instance of the same plugin - should NOT be deduped by parser.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>None</div>
+</div>
+
+</body>
+</html>`;
+
+const SAMPLE_ZAP = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>OWASP ZAP Scanning Report</title></head>
+<body>
+<h1>OWASP ZAP Scanning Report</h1>
+
+<h3>Cross Site Scripting (Reflected)</h3>
+<table width="100%">
+  <tr><td class="alertHead" colspan="2">Cross Site Scripting (Reflected)</td></tr>
+  <tr><td>Risk</td><td class="risk-High">High</td></tr>
+  <tr><td>Confidence</td><td>Medium</td></tr>
+  <tr><td>Description</td><td>Cross-site Scripting (XSS) is an attack technique that involves echoing attacker-supplied code into a user's browser instance.</td></tr>
+  <tr><td>URL</td><td>https://app.example.com/search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E</td></tr>
+  <tr><td>Method</td><td>GET</td></tr>
+  <tr><td>Parameter</td><td>q</td></tr>
+  <tr><td>Attack</td><td>&lt;script&gt;alert(1)&lt;/script&gt;</td></tr>
+  <tr><td>Evidence</td><td>&lt;script&gt;alert(1)&lt;/script&gt;</td></tr>
+  <tr><td>Solution</td><td>Validate all input and sanitize output before rendering it in HTML.</td></tr>
+  <tr><td>Reference</td><td>https://owasp.org/www-community/attacks/xss/</td></tr>
+  <tr><td>CWE Id</td><td>79</td></tr>
+  <tr><td>WASC Id</td><td>8</td></tr>
+  <tr><td>Source ID</td><td>1</td></tr>
+</table>
+
+<table width="100%">
+  <tr><td class="alertHead" colspan="2">Cross Site Scripting (Reflected)</td></tr>
+  <tr><td>Risk</td><td class="risk-High">High</td></tr>
+  <tr><td>Confidence</td><td>Medium</td></tr>
+  <tr><td>Description</td><td>Cross-site Scripting (XSS) is an attack technique that involves echoing attacker-supplied code into a user's browser instance.</td></tr>
+  <tr><td>URL</td><td>https://app.example.com/comment?name=%3Cscript%3Ealert(2)%3C%2Fscript%3E</td></tr>
+  <tr><td>Method</td><td>POST</td></tr>
+  <tr><td>Parameter</td><td>name</td></tr>
+  <tr><td>Attack</td><td>&lt;script&gt;alert(2)&lt;/script&gt;</td></tr>
+  <tr><td>Evidence</td><td>&lt;script&gt;alert(2)&lt;/script&gt;</td></tr>
+  <tr><td>Solution</td><td>Validate all input and sanitize output before rendering it in HTML.</td></tr>
+  <tr><td>Reference</td><td>https://owasp.org/www-community/attacks/xss/</td></tr>
+  <tr><td>CWE Id</td><td>79</td></tr>
+  <tr><td>WASC Id</td><td>8</td></tr>
+  <tr><td>Source ID</td><td>1</td></tr>
+</table>
+
+<h3>Cookie No HttpOnly Flag</h3>
+<table width="100%">
+  <tr><td class="alertHead" colspan="2">Cookie No HttpOnly Flag</td></tr>
+  <tr><td>Risk</td><td class="risk-Low">Low</td></tr>
+  <tr><td>Confidence</td><td>Medium</td></tr>
+  <tr><td>Description</td><td>A cookie has been set without the HttpOnly flag, which means that the cookie can be accessed by JavaScript.</td></tr>
+  <tr><td>URL</td><td>https://app.example.com/login</td></tr>
+  <tr><td>Method</td><td>GET</td></tr>
+  <tr><td>Solution</td><td>Ensure that the HttpOnly flag is set for all cookies.</td></tr>
+  <tr><td>Reference</td><td>https://owasp.org/www-community/HttpOnly</td></tr>
+  <tr><td>CWE Id</td><td>1004</td></tr>
+  <tr><td>WASC Id</td><td>13</td></tr>
+  <tr><td>Source ID</td><td>3</td></tr>
+</table>
+
+</body>
+</html>`;
+
+el('sampleNessus').addEventListener('click', () => handleText(SAMPLE_NESSUS, 'sample: nessus_sample.html'));
+el('sampleZap').addEventListener('click', () => handleText(SAMPLE_ZAP, 'sample: zap_sample.html'));
+</script>
+</body>
+</html>

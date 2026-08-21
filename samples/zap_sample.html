@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>ZAP by Checkmarx Scanning Report</title></head>
+<body>
+<header>
+	<h1>ZAP by Checkmarx Scanning Report</h1>
+	<p><span>Generated with</span> <a href="https://zaproxy.org">ZAP</a></p>
+	<p>ZAP by <a href="https://checkmarx.com/">Checkmarx</a></p>
+</header>
+<main>
+<section id="alerts" class="alerts">
+	<h2>Alerts</h2>
+	<ol>
+		<li id="alerts--risk-2-confidence-3">
+			<h3><span>Risk</span>=<span class="risk-level">Medium</span>, <span>Confidence</span>=<span class="confidence-level">High</span> <span>(2)</span></h3>
+			<ol>
+				<li class="alerts--site-li">
+					<h4><span class="site">https://app.example.com</span> <span>(2)</span></h4>
+					<ol>
+						<li>
+							<h5><a href="#alert-type-0">Cross Site Scripting (Reflected)</a> <span>(2)</span></h5>
+							<ol>
+								<li><details>
+									<summary><span class="request-method-n-url">GET https://app.example.com/search?q=%3Cscript%3E</span></summary>
+									<table class="alerts-table">
+										<tr><th scope="row">Alert description</th><td><p>Cross-site Scripting (XSS) is an attack technique.</p></td></tr>
+										<tr><th scope="row">Other info</th><td><p>reflected in the response</p></td></tr>
+										<tr><th scope="row">Parameter</th><td><pre><code>q</code></pre></td></tr>
+										<tr><th scope="row">Evidence</th><td><pre><code>&lt;script&gt;</code></pre></td></tr>
+										<tr><th scope="row">Solution</th><td><p>Validate all input and sanitize output.</p></td></tr>
+									</table>
+								</details></li>
+								<li><details>
+									<summary><span class="request-method-n-url">POST https://app.example.com/comment</span></summary>
+									<table class="alerts-table">
+										<tr><th scope="row">Alert description</th><td><p>Cross-site Scripting (XSS) is an attack technique.</p></td></tr>
+										<tr><th scope="row">Parameter</th><td><pre><code>name</code></pre></td></tr>
+										<tr><th scope="row">Solution</th><td><p>Validate all input and sanitize output.</p></td></tr>
+									</table>
+								</details></li>
+							</ol>
+						</li>
+					</ol>
+				</li>
+			</ol>
+		</li>
+		<li id="alerts--risk-1-confidence-2">
+			<h3><span>Risk</span>=<span class="risk-level">Low</span>, <span>Confidence</span>=<span class="confidence-level">Medium</span> <span>(1)</span></h3>
+			<ol>
+				<li class="alerts--site-li">
+					<h4><span class="site">https://app.example.com</span> <span>(1)</span></h4>
+					<ol>
+						<li>
+							<h5><a href="#alert-type-1">Cookie No HttpOnly Flag</a> <span>(1)</span></h5>
+							<ol>
+								<li><details>
+									<summary><span class="request-method-n-url">GET https://app.example.com/login</span></summary>
+									<table class="alerts-table">
+										<tr><th scope="row">Alert description</th><td><p>A cookie has been set without the HttpOnly flag.</p></td></tr>
+										<tr><th scope="row">Solution</th><td><p>Ensure that the HttpOnly flag is set for all cookies.</p></td></tr>
+									</table>
+								</details></li>
+							</ol>
+						</li>
+					</ol>
+				</li>
+			</ol>
+		</li>
+	</ol>
+</section>
+</main>
+</body>
+</html>

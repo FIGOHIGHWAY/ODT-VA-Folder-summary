@@ -1,0 +1,11 @@
+.env
+app/node_modules/
+app/.svelte-kit/
+app/build/
+nginx/certs/
+
+# real scan exports (and the test that reads them) used to debug the
+# parsers — contain real hostnames and real vulnerability findings, never
+# publish these
+app/src/lib/server/parsers/__fixtures__/real/
+app/src/lib/server/parsers/real.test.js

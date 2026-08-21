@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Tenable Nessus Report</title></head>
+<body>
+<div style="font-size:22px;font-weight:700">webserver01.example.com</div>
+
+<div id="id1" style="background: #91243E">10114 - ICMP Timestamp Request Remote Date Disclosure<div id="id1-toggletext" style="float: right; text-align: center; width: 8px;">
+                -
+            </div>
+</div>
+<div id="id1-container">
+  <div class="details-header">Synopsis</div>
+  <div>It is possible to determine the exact time set on the remote host.</div>
+  <div class="details-header">Description</div>
+  <div>The remote host responds to ICMP timestamp requests. This allows an attacker to determine ระบบเวลา (system time) ของ remote host.</div>
+  <div class="details-header">Solution</div>
+  <div>Filter out ICMP timestamp requests (13) and the corresponding outgoing responses (14).</div>
+  <div class="details-header">Risk Factor</div>
+  <div>Critical</div>
+  <div class="details-header">CVSS v3.0 Base Score</div>
+  <div>9.8</div>
+  <div class="details-header">CVE</div>
+  <div>CVE-2020-12345</div>
+</div>
+
+<div id="id2" style="background: #DD4B50">22964 - Service Detection</div>
+<div id="id2-container">
+  <div class="details-header">Synopsis</div>
+  <div>A service is running on this port.</div>
+  <div class="details-header">Description</div>
+  <div>It was possible to identify the service by its banner or by looking at the response to a few probes.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>High</div>
+</div>
+
+<div id="id3" style="background: #67ACE1">19506 - Nessus Scan Information</div>
+<div id="id3-container">
+  <div class="details-header">Synopsis</div>
+  <div>This plugin displays information about the Nessus scan.</div>
+  <div class="details-header">Description</div>
+  <div>This plugin displays, for each tested host, information about the scan itself.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>None</div>
+</div>
+
+<div id="id3" style="background: #67ACE1">19506 - Nessus Scan Information</div>
+<div id="id3-container">
+  <div class="details-header">Synopsis</div>
+  <div>This plugin displays information about the Nessus scan.</div>
+  <div class="details-header">Description</div>
+  <div>Second port instance of the same plugin - should NOT be deduped by parser.</div>
+  <div class="details-header">Solution</div>
+  <div>n/a</div>
+  <div class="details-header">Risk Factor</div>
+  <div>None</div>
+</div>
+
+</body>
+</html>
