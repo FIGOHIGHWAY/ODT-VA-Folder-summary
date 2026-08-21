@@ -105,15 +105,46 @@
 				<input
 					bind:this={fileInput}
 					type="file"
-					accept=".html,.htm"
+					accept=".html,.htm,.zip"
 					onchange={onFileChange}
 					style="display:none"
 				/>
-				<div>📄 คลิกหรือลากไฟล์ HTML export มาวางที่นี่</div>
+				<div>📄 คลิกหรือลากไฟล์ HTML export (หรือ ZIP รวมหลายไฟล์) มาวางที่นี่</div>
 			</label>
 
 			{#if status === 'loading'}
 				<div class="status"><span class="badge">กำลัง parse...</span></div>
+			{:else if status === 'ok' && result?.batch}
+				<div class="status">
+					<span class="badge ok">นำเข้าจาก ZIP สำเร็จ {result.succeeded}/{result.total} ไฟล์</span>
+				</div>
+				<div class="scroll">
+					<table>
+						<thead>
+							<tr>
+								<th>File</th>
+								<th>Tool</th>
+								<th>Findings</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each result.results as r (r.filename)}
+								<tr>
+									<td>{r.filename}</td>
+									{#if r.error}
+										<td colspan="2"><span class="badge err">{r.error}</span></td>
+										<td></td>
+									{:else}
+										<td><span class="badge {r.type}">{r.type.toUpperCase()}</span></td>
+										<td class="mono">{r.insertedCount}</td>
+										<td><a class="button" href="/reports/{r.reportId}">ดู →</a></td>
+									{/if}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			{:else if status === 'ok' && result}
 				<div class="status">
 					<span class="badge ok">บันทึกสำเร็จ</span>
