@@ -23,7 +23,7 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/va_scan
-      ORIGIN: https://localhost:6767
+      ORIGIN: https://odt-stvascan.kku.ac.th
     depends_on:
       db:
         condition: service_healthy
@@ -34,7 +34,8 @@ services:
     depends_on:
       - app
     ports:
-      - "6767:443"
+      - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/certs:/etc/nginx/certs:ro

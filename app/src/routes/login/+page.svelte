@@ -24,7 +24,7 @@
 			🔐 เข้าสู่ระบบด้วย KKU SSO
 		</a>
 
-		<p class="note">คุณจะถูกนำไปยัง <span class="mono">authorization-req.kku.ac.th</span></p>
+		<p class="note">คุณจะถูกนำไปยัง <span class="mono">{data.loginHost}</span></p>
 	</div>
 </div>
 

@@ -45,6 +45,15 @@ export function isOauthConfigured() {
 	return Boolean(TOKEN_URL && APP_ID && CLIENT_ID && CLIENT_SECRET && REDIRECT_URI);
 }
 
+/** The hostname the browser gets redirected to for login (for display on the /login page). */
+export function getLoginHost() {
+	try {
+		return new URL(LOGIN_BASE).host;
+	} catch {
+		return LOGIN_BASE;
+	}
+}
+
 /**
  * Check a logged-in user's email against the ALLOWED_EMAILS allowlist. An
  * empty allowlist means everyone who can authenticate via KKU SSO is let in.

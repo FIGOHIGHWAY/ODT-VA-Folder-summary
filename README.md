@@ -21,12 +21,12 @@ bash nginx/generate-dev-cert.sh
 docker compose up -d --build
 
 # 3. เปิดเบราว์เซอร์
-https://localhost:6767/
+https://localhost/
 ```
 
-เว็บ serve ผ่าน HTTPS ที่ **port 6767** (แทน 443 ปกติ เพื่อเลี่ยงชนกับ service
-อื่นที่อาจใช้ port 80/443 อยู่แล้วบนเครื่อง) แก้ได้ที่ `docker-compose.yml`
-ส่วน `nginx.ports` (`"6767:443"`)
+เว็บ serve ผ่าน HTTPS ที่ **port 443 มาตรฐาน** (และ 80 สำหรับ redirect ไป
+HTTPS) — ถ้าเครื่อง dev มี service อื่นชน port 80/443 อยู่แล้ว แก้ mapping ได้ที่
+`docker-compose.yml` ส่วน `nginx.ports`
 
 เบราว์เซอร์จะเตือน "ไม่ปลอดภัย" เพราะ cert เป็น self-signed — กด "Advanced → proceed" ได้ตามปกติสำหรับ dev
 
@@ -36,8 +36,9 @@ Migration (`app/migrations/001_init.sql`) จะถูกรันอัตโ�
 ### Production
 
 - แทนที่ `nginx/certs/fullchain.pem` และ `privkey.pem` ด้วย cert จริงจาก Let's
-  Encrypt/certbot แล้วแก้ `server_name` ใน `nginx/conf.d/default.conf` เป็น
-  domain จริง
+  Encrypt/certbot สำหรับ domain จริง (เช่น `odt-stvascan.kku.ac.th`) —
+  `server_name` ใน `nginx/conf.d/default.conf` เป็น `_` (catch-all) อยู่แล้ว
+  ไม่ต้องแก้ก็ใช้กับ domain ไหนก็ได้
 - เปลี่ยน `POSTGRES_PASSWORD` และ `DATABASE_URL` ใน `docker-compose.yml` เป็นค่า
   ที่ปลอดภัย (แนะนำใช้ `.env` + docker secrets แทนการ hardcode)
 
@@ -83,7 +84,7 @@ ZAP 2.17 "ZAP by Checkmarx" ที่เปลี่ยนโครงสร้�
    OAUTH_APP_ID=...                                        # AppID (คนละค่ากับ Client ID) ใช้สร้าง login/logout URL
    OAUTH_CLIENT_ID=...
    OAUTH_CLIENT_SECRET=...
-   OAUTH_REDIRECT_URI=https://localhost:6767/callback      # ต้องตรงกับ Redirect URL ที่ลงทะเบียนไว้กับ KKU ตอนขอ App ID
+   OAUTH_REDIRECT_URI=https://odt-stvascan.kku.ac.th/callback  # ต้องตรงกับ Redirect URL ที่ลงทะเบียนไว้กับ KKU ตอนขอ App ID เป๊ะๆ — เปลี่ยน host แล้วต้องแจ้ง KKU ให้อัปเดตที่ลงทะเบียนไว้ด้วย
    OAUTH_LOGIN_BASE=https://ssonext.kku.ac.th               # host หน้า login/logout — ของจริงคือค่านี้ ยกเว้น KKU ให้ host UAT แยกมาให้ตั้งแทน
    ALLOWED_EMAILS=phonhat@kku.ac.th                        # เว้นว่างไว้ = ให้ทุกคนที่ login ผ่าน KKU SSO เข้าได้
    ```
