@@ -23,7 +23,7 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/va_scan
-      ORIGIN: https://odt-stvascan.kku.ac.th
+      ORIGIN: https://10.101.118.167
     depends_on:
       db:
         condition: service_healthy
