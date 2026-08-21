@@ -33,17 +33,36 @@
 			.sort((a, b) => new Date(b.imported_at) - new Date(a.imported_at))
 	);
 
+	// Must match nginx's client_max_body_size — checked client-side so an
+	// oversized file gets a clear Thai message instead of nginx's raw HTML
+	// error page failing to parse as JSON.
+	const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
 	async function submitFile(file) {
 		status = 'loading';
 		errorMessage = '';
 		result = null;
+
+		if (file.size > MAX_UPLOAD_BYTES) {
+			status = 'error';
+			const mb = (file.size / (1024 * 1024)).toFixed(1);
+			errorMessage = `ไฟล์มีขนาด ${mb} MB เกินลิมิตที่อัปโหลดได้ (20 MB) — ลองแบ่งไฟล์ HTML ใน ZIP เป็นหลายชุดย่อยแทน`;
+			return;
+		}
 
 		const form = new FormData();
 		form.append('file', file);
 
 		try {
 			const res = await fetch('/api/parse', { method: 'POST', body: form });
-			const body = await res.json();
+			let body;
+			try {
+				body = await res.json();
+			} catch {
+				status = 'error';
+				errorMessage = `เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (HTTP ${res.status}) — ไฟล์อาจใหญ่เกินไปหรือเซิร์ฟเวอร์มีปัญหาชั่วคราว`;
+				return;
+			}
 			if (!res.ok) {
 				status = 'error';
 				errorMessage = body.error ?? 'parse failed';
