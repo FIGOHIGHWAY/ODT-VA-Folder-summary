@@ -36,7 +36,7 @@
 	// Must match nginx's client_max_body_size — checked client-side so an
 	// oversized file gets a clear Thai message instead of nginx's raw HTML
 	// error page failing to parse as JSON.
-	const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+	const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 	async function submitFile(file) {
 		status = 'loading';
@@ -46,7 +46,7 @@
 		if (file.size > MAX_UPLOAD_BYTES) {
 			status = 'error';
 			const mb = (file.size / (1024 * 1024)).toFixed(1);
-			errorMessage = `ไฟล์มีขนาด ${mb} MB เกินลิมิตที่อัปโหลดได้ (20 MB) — ลองแบ่งไฟล์ HTML ใน ZIP เป็นหลายชุดย่อยแทน`;
+			errorMessage = `ไฟล์มีขนาด ${mb} MB เกินลิมิตที่อัปโหลดได้ (100 MB) — ลองแบ่งไฟล์ HTML ใน ZIP เป็นหลายชุดย่อยแทน`;
 			return;
 		}
 
