@@ -53,19 +53,35 @@ function pickDomain(findings) {
 }
 
 /**
+ * Look up a previously imported report by its content hash (sha256 of the
+ * raw uploaded file), so a duplicate upload can be recognized and skipped
+ * instead of creating a second copy of the same findings.
+ * @param {string} contentHash
+ * @returns {Promise<{ id: number, original_filename: string, imported_at: Date }|null>}
+ */
+export async function findReportByContentHash(contentHash) {
+	if (!contentHash) return null;
+	const { rows } = await pool.query(
+		`SELECT id, original_filename, imported_at FROM reports WHERE content_hash = $1 LIMIT 1`,
+		[contentHash]
+	);
+	return rows[0] ?? null;
+}
+
+/**
  * Insert a parsed report and its findings inside one transaction.
- * @param {{ sourceTool: 'nessus'|'zap', originalFilename: string, findings: Array<object> }} input
+ * @param {{ sourceTool: 'nessus'|'zap', originalFilename: string, findings: Array<object>, contentHash?: string|null }} input
  * @returns {Promise<{ reportId: number, insertedCount: number, domain: string|null }>}
  */
-export async function insertReport({ sourceTool, originalFilename, findings }) {
+export async function insertReport({ sourceTool, originalFilename, findings, contentHash = null }) {
 	const domain = pickDomain(findings);
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
 
 		const reportResult = await client.query(
-			`INSERT INTO reports (source_tool, original_filename, domain) VALUES ($1, $2, $3) RETURNING id`,
-			[sourceTool, originalFilename, domain]
+			`INSERT INTO reports (source_tool, original_filename, domain, content_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
+			[sourceTool, originalFilename, domain, contentHash]
 		);
 		const reportId = reportResult.rows[0].id;
 

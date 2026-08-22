@@ -136,6 +136,9 @@
 			{:else if status === 'ok' && result?.batch}
 				<div class="status">
 					<span class="badge ok">นำเข้าจาก ZIP สำเร็จ {result.succeeded}/{result.total} ไฟล์</span>
+					{#if result.duplicates}
+						<span class="badge">ข้ามไฟล์ซ้ำ {result.duplicates} ไฟล์</span>
+					{/if}
 				</div>
 				<div class="scroll">
 					<table>
@@ -154,6 +157,11 @@
 									{#if r.error}
 										<td colspan="2"><span class="badge err">{r.error}</span></td>
 										<td></td>
+									{:else if r.duplicate}
+										<td colspan="2">
+											<span class="badge">ไฟล์ซ้ำกับที่นำเข้าไว้แล้ว ({r.existingFilename})</span>
+										</td>
+										<td><a class="button" href="/reports/{r.existingReportId}">ดู →</a></td>
 									{:else}
 										<td><span class="badge {r.type}">{r.type.toUpperCase()}</span></td>
 										<td class="mono">{r.insertedCount}</td>
@@ -163,6 +171,14 @@
 							{/each}
 						</tbody>
 					</table>
+				</div>
+			{:else if status === 'ok' && result?.duplicate}
+				<div class="status">
+					<span class="badge">ไฟล์นี้เคยนำเข้าไว้แล้ว</span>
+					<span style="color:var(--muted)">
+						ซ้ำกับ {result.existingFilename} (นำเข้าเมื่อ {new Date(result.existingImportedAt).toLocaleString()})
+					</span>
+					<a class="button" href="/reports/{result.existingReportId}">ดูรายงานเดิม →</a>
 				</div>
 			{:else if status === 'ok' && result}
 				<div class="status">

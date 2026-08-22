@@ -1,14 +1,33 @@
 import { json } from '@sveltejs/kit';
+import { createHash } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { parseReport } from '$lib/server/parsers/index.js';
-import { insertReport } from '$lib/server/db.js';
+import { insertReport, findReportByContentHash } from '$lib/server/db.js';
+
+function hashContent(html) {
+	return createHash('sha256').update(html, 'utf-8').digest('hex');
+}
 
 async function parseAndInsert(filename, html) {
+	const contentHash = hashContent(html);
+
+	const existing = await findReportByContentHash(contentHash);
+	if (existing) {
+		return {
+			filename,
+			duplicate: true,
+			existingReportId: existing.id,
+			existingFilename: existing.original_filename,
+			existingImportedAt: existing.imported_at
+		};
+	}
+
 	const { type, findings } = parseReport(html, filename);
 	const { reportId, insertedCount } = await insertReport({
 		sourceTool: type,
 		originalFilename: filename,
-		findings
+		findings,
+		contentHash
 	});
 	return { filename, reportId, type, insertedCount, findings };
 }
@@ -67,6 +86,7 @@ export async function POST({ request }) {
 		}
 	}
 
-	const succeeded = results.filter((r) => !r.error).length;
-	return json({ batch: true, total: results.length, succeeded, results });
+	const duplicates = results.filter((r) => r.duplicate).length;
+	const succeeded = results.filter((r) => !r.error && !r.duplicate).length;
+	return json({ batch: true, total: results.length, succeeded, duplicates, results });
 }
