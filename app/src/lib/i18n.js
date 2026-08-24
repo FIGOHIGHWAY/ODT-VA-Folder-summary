@@ -20,6 +20,7 @@ export function setLang(value) {
 const dict = {
 	th: {
 		brand: 'ODT KKU',
+		nav_home: '🏠 หน้าแรก',
 		nav_search: '🔍 ค้นหา',
 		nav_dashboard: '📊 Dashboard',
 		nav_ai_key: '🔌 AI ของฉัน',
@@ -71,6 +72,7 @@ const dict = {
 	},
 	en: {
 		brand: 'ODT KKU',
+		nav_home: '🏠 Home',
 		nav_search: '🔍 Search',
 		nav_dashboard: '📊 Dashboard',
 		nav_ai_key: '🔌 My AI',

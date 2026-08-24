@@ -50,6 +50,9 @@
 			<a class="topbar-brand" href="/">
 				<img src={logo} alt="ODT KKU" />
 			</a>
+			{#if $page.url.pathname !== '/'}
+				<a class="topbar-link" href="/">{t($lang, 'nav_home')}</a>
+			{/if}
 			{#if data.user}
 				<span class="topbar-user mono">
 					👤 {data.user.name || data.user.email || data.user.sub}
