@@ -13,7 +13,7 @@ export async function GET({ params }) {
 	}
 	const pdf = await findingsToPdf(findings, {
 		title: `VA Scan Findings — Report #${reportId}`,
-		subtitle: `${findings.length} finding(s) · generated ${new Date().toISOString()}`
+		subtitle: `${findings.length} finding(s) - generated ${new Date().toISOString()}`
 	});
 	return new Response(pdf, {
 		headers: {

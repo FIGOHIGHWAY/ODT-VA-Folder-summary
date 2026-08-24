@@ -11,7 +11,7 @@ export async function GET({ params }) {
 	const latestRoundDate = findings[0]?.report_imported_at;
 	const pdf = await findingsToPdf(findings, {
 		title: `VA Scan Findings — ${domain}`,
-		subtitle: `รอบล่าสุด (${latestRoundDate ? new Date(latestRoundDate).toLocaleDateString() : '—'}) · ${findings.length} finding(s) · generated ${new Date().toISOString()}`
+		subtitle: `Latest round (${latestRoundDate ? new Date(latestRoundDate).toISOString().slice(0, 10) : '-'}) - ${findings.length} finding(s) - generated ${new Date().toISOString()}`
 	});
 	return new Response(pdf, {
 		headers: {
