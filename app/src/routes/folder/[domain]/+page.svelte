@@ -86,7 +86,7 @@
 			<p class="sub">{data.reports.length} report(s)</p>
 		</div>
 		<div class="actions">
-			<a class="button" href="/api/export/domain/{data.domain}">⬇️ ดึงไฟล์</a>
+			<a class="button" href="/api/export/domain/{data.domain}">⬇️ ดึงไฟล์ (รอบล่าสุด)</a>
 
 			{#if data.canGenerateReport}
 				{#if data.hasOwnAiKey}

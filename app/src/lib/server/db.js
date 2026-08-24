@@ -393,6 +393,33 @@ export async function listFindingsForDomain(domain) {
 }
 
 /**
+ * Findings for only the most recent scan "round" of a domain — every report
+ * imported on the same calendar date as the domain's latest import (so a
+ * ZAP+Nessus pair uploaded together the same day counts as one round, but
+ * older rounds are excluded). Used for exports, where "latest" should mean
+ * the newest scan, not every scan ever run against the domain.
+ * @param {string} domain
+ */
+export async function listFindingsForLatestRound(domain) {
+	const { rows } = await pool.query(
+		`WITH latest_date AS (
+			SELECT MAX(imported_at::date) AS d FROM reports WHERE domain = $1
+		 )
+		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE r.domain = $1 AND r.imported_at::date = (SELECT d FROM latest_date)
+		 ORDER BY
+		   CASE f.severity
+		     WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
+		     WHEN 'low' THEN 3 ELSE 4
+		   END, f.id`,
+		[domain]
+	);
+	return rows;
+}
+
+/**
  * Get a single central setting's value (e.g. the AI system prompt), or null
  * if it has never been set (caller should fall back to a hardcoded default).
  * @param {string} key
