@@ -1,30 +1,31 @@
 <script>
+	import { onMount } from 'svelte';
 	import logo from '$lib/assets/odt-kku-logo.svg';
+	import { lang, initLang, t } from '$lib/i18n.js';
 
 	let { data } = $props();
+
+	onMount(initLang);
 
 	const startUrl = `/login/start?returnTo=${encodeURIComponent(data.returnTo)}`;
 </script>
 
 <svelte:head>
-	<title>เข้าสู่ระบบ · Scan Report Normalizer</title>
+	<title>{t($lang, 'login_title')} · {t($lang, 'home_title')}</title>
 </svelte:head>
 
 <div class="login-page">
 	<div class="login-card">
 		<img class="login-logo" src={logo} alt="ODT KKU" />
-		<p class="eyebrow">nessus · zap → unified json → postgres</p>
-		<h1>Scan Report Normalizer</h1>
-		<p class="sub">
-			ระบบนี้ต้องเข้าสู่ระบบด้วยบัญชี KKU ก่อนใช้งาน กด "เข้าสู่ระบบด้วย KKU SSO"
-			เพื่อไปยังหน้ายืนยันตัวตนของมหาวิทยาลัยขอนแก่น
-		</p>
+		<p class="eyebrow">{t($lang, 'home_eyebrow')}</p>
+		<h1>{t($lang, 'home_title')}</h1>
+		<p class="sub">{t($lang, 'login_desc')}</p>
 
 		<a class="button primary sso-button" href={startUrl}>
-			🔐 เข้าสู่ระบบด้วย KKU SSO
+			{t($lang, 'login_button')}
 		</a>
 
-		<p class="note">คุณจะถูกนำไปยัง <span class="mono">{data.loginHost}</span></p>
+		<p class="note">{t($lang, 'login_redirect_note')} <span class="mono">{data.loginHost}</span></p>
 	</div>
 </div>
 

@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { lang, initLang, t } from '$lib/i18n.js';
 
 	let { data } = $props();
 
@@ -9,16 +10,17 @@
 	let dragging = $state(false);
 	let fileInput;
 
-	const VIEW_MODES = [
-		{ id: 'list', label: '📋 รายการ' },
-		{ id: 'details', label: '📊 รายละเอียด' }
-	];
 	const VIEW_STORAGE_KEY = 'va-scan-home-view';
 	let viewMode = $state('list');
+	const VIEW_MODES = $derived([
+		{ id: 'list', label: t($lang, 'home_view_list') },
+		{ id: 'details', label: t($lang, 'home_view_details') }
+	]);
 
 	onMount(() => {
+		initLang();
 		const stored = localStorage.getItem(VIEW_STORAGE_KEY);
-		if (stored && VIEW_MODES.some((v) => v.id === stored)) viewMode = stored;
+		if (stored === 'list' || stored === 'details') viewMode = stored;
 	});
 
 	function setViewMode(mode) {
@@ -46,7 +48,10 @@
 		if (file.size > MAX_UPLOAD_BYTES) {
 			status = 'error';
 			const mb = (file.size / (1024 * 1024)).toFixed(1);
-			errorMessage = `ไฟล์มีขนาด ${mb} MB เกินลิมิตที่อัปโหลดได้ (100 MB) — ลองแบ่งไฟล์ HTML ใน ZIP เป็นหลายชุดย่อยแทน`;
+			errorMessage =
+				$lang === 'th'
+					? `ไฟล์มีขนาด ${mb} MB เกินลิมิตที่อัปโหลดได้ (100 MB) — ลองแบ่งไฟล์ HTML ใน ZIP เป็นหลายชุดย่อยแทน`
+					: `File is ${mb} MB, over the 100 MB upload limit — try splitting the HTML files into smaller ZIP batches instead.`;
 			return;
 		}
 
@@ -60,12 +65,15 @@
 				body = await res.json();
 			} catch {
 				status = 'error';
-				errorMessage = `เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (HTTP ${res.status}) — ไฟล์อาจใหญ่เกินไปหรือเซิร์ฟเวอร์มีปัญหาชั่วคราว`;
+				errorMessage =
+					$lang === 'th'
+						? `เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (HTTP ${res.status}) — ไฟล์อาจใหญ่เกินไปหรือเซิร์ฟเวอร์มีปัญหาชั่วคราว`
+						: `The server sent back an invalid response (HTTP ${res.status}) — the file may be too large, or the server is temporarily having trouble.`;
 				return;
 			}
 			if (!res.ok) {
 				status = 'error';
-				errorMessage = body.error ?? 'parse failed';
+				errorMessage = body.error ?? t($lang, 'home_parse_failed');
 				return;
 			}
 			status = 'ok';
@@ -90,24 +98,21 @@
 </script>
 
 <svelte:head>
-	<title>Scan Report Normalizer</title>
+	<title>{t($lang, 'home_title')}</title>
 </svelte:head>
 
 <div class="wrap">
 	<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem">
 		<div>
-			<p class="eyebrow">nessus · zap → unified json → postgres</p>
-			<h1>Scan Report Normalizer</h1>
+			<p class="eyebrow">{t($lang, 'home_eyebrow')}</p>
+			<h1>{t($lang, 'home_title')}</h1>
 		</div>
 		<div style="display:flex; gap:.5rem">
-			<a class="button" href="/search">🔍 ค้นหา</a>
-			<a class="button" href="/dashboard">📊 Dashboard</a>
+			<a class="button" href="/search">{t($lang, 'nav_search')}</a>
+			<a class="button" href="/dashboard">{t($lang, 'nav_dashboard')}</a>
 		</div>
 	</div>
-	<p class="sub">
-		อัปโหลดไฟล์ HTML export จาก Nessus หรือ OWASP ZAP ระบบจะ detect ประเภท, parse เป็น JSON
-		schema เดียวกัน แล้วบันทึกลง PostgreSQL อัตโนมัติ
-	</p>
+	<p class="sub">{t($lang, 'home_sub')}</p>
 
 	{#if data.canUpload}
 		<div class="panel">
@@ -128,25 +133,29 @@
 					onchange={onFileChange}
 					style="display:none"
 				/>
-				<div>📄 คลิกหรือลากไฟล์ HTML export (หรือ ZIP รวมหลายไฟล์) มาวางที่นี่</div>
+				<div>{t($lang, 'home_drop')}</div>
 			</label>
 
 			{#if status === 'loading'}
-				<div class="status"><span class="badge">กำลัง parse...</span></div>
+				<div class="status"><span class="badge">{t($lang, 'home_parsing')}</span></div>
 			{:else if status === 'ok' && result?.batch}
 				<div class="status">
-					<span class="badge ok">นำเข้าจาก ZIP สำเร็จ {result.succeeded}/{result.total} ไฟล์</span>
+					<span class="badge ok">
+						{t($lang, 'home_batch_imported')} {result.succeeded}/{result.total} {t($lang, 'home_files_suffix')}
+					</span>
 					{#if result.duplicates}
-						<span class="badge">ข้ามไฟล์ซ้ำ {result.duplicates} ไฟล์</span>
+						<span class="badge">
+							{t($lang, 'home_duplicate_skipped')} {result.duplicates} {t($lang, 'home_files_suffix')}
+						</span>
 					{/if}
 				</div>
 				<div class="scroll">
 					<table>
 						<thead>
 							<tr>
-								<th>File</th>
-								<th>Tool</th>
-								<th>Findings</th>
+								<th>{t($lang, 'home_col_file')}</th>
+								<th>{t($lang, 'home_col_tool')}</th>
+								<th>{t($lang, 'home_col_findings')}</th>
 								<th></th>
 							</tr>
 						</thead>
@@ -159,13 +168,15 @@
 										<td></td>
 									{:else if r.duplicate}
 										<td colspan="2">
-											<span class="badge">ไฟล์ซ้ำกับที่นำเข้าไว้แล้ว ({r.existingFilename})</span>
+											<span class="badge">{t($lang, 'home_duplicate_of')} ({r.existingFilename})</span>
 										</td>
-										<td><a class="button" href="/reports/{r.existingReportId}">ดู →</a></td>
+										<td>
+											<a class="button" href="/reports/{r.existingReportId}">{t($lang, 'home_view')}</a>
+										</td>
 									{:else}
 										<td><span class="badge {r.type}">{r.type.toUpperCase()}</span></td>
 										<td class="mono">{r.insertedCount}</td>
-										<td><a class="button" href="/reports/{r.reportId}">ดู →</a></td>
+										<td><a class="button" href="/reports/{r.reportId}">{t($lang, 'home_view')}</a></td>
 									{/if}
 								</tr>
 							{/each}
@@ -174,23 +185,24 @@
 				</div>
 			{:else if status === 'ok' && result?.duplicate}
 				<div class="status">
-					<span class="badge">ไฟล์นี้เคยนำเข้าไว้แล้ว</span>
+					<span class="badge">{t($lang, 'home_already_imported')}</span>
 					<span style="color:var(--muted)">
-						ซ้ำกับ {result.existingFilename} (นำเข้าเมื่อ {new Date(result.existingImportedAt).toLocaleString()})
+						{t($lang, 'home_duplicate_of_full')} {result.existingFilename} ({t($lang, 'home_imported_at')}
+						{new Date(result.existingImportedAt).toLocaleString()})
 					</span>
-					<a class="button" href="/reports/{result.existingReportId}">ดูรายงานเดิม →</a>
+					<a class="button" href="/reports/{result.existingReportId}">{t($lang, 'home_view_original')}</a>
 				</div>
 			{:else if status === 'ok' && result}
 				<div class="status">
-					<span class="badge ok">บันทึกสำเร็จ</span>
+					<span class="badge ok">{t($lang, 'home_saved')}</span>
 					<span class="badge {result.type}">{result.type.toUpperCase()}</span>
 					<span style="color:var(--muted)">
 						{result.insertedCount} finding(s) · report #{result.reportId}
 					</span>
-					<a class="button" href="/reports/{result.reportId}">ดูรายละเอียด →</a>
+					<a class="button" href="/reports/{result.reportId}">{t($lang, 'home_view_detail')}</a>
 				</div>
 			{:else if status === 'error'}
-				<div class="status"><span class="badge err">Parse failed</span></div>
+				<div class="status"><span class="badge err">{t($lang, 'home_parse_failed')}</span></div>
 				<div class="err-box">{errorMessage}</div>
 			{/if}
 		</div>
@@ -198,8 +210,8 @@
 
 	<div class="panel">
 		<div class="panel-toolbar">
-			<h2>รายงานที่เคยนำเข้า (จัดกลุ่มตาม domain)</h2>
-			<div class="view-switch" role="group" aria-label="รูปแบบการแสดงผล">
+			<h2>{t($lang, 'home_reports_title')}</h2>
+			<div class="view-switch" role="group" aria-label="view mode">
 				{#each VIEW_MODES as v (v.id)}
 					<button
 						type="button"
@@ -213,9 +225,9 @@
 			</div>
 		</div>
 		{#if data.dbError}
-			<div class="err-box">เชื่อมต่อฐานข้อมูลไม่สำเร็จ: {data.dbError}</div>
+			<div class="err-box">{t($lang, 'home_db_error')}: {data.dbError}</div>
 		{:else if data.domains.length === 0}
-			<div class="empty">ยังไม่มีรายงานที่นำเข้า</div>
+			<div class="empty">{t($lang, 'home_no_reports')}</div>
 		{:else if viewMode === 'details'}
 			<div class="scroll">
 				<table>
@@ -223,10 +235,10 @@
 						<tr>
 							<th>#</th>
 							<th>Domain</th>
-							<th>Tool</th>
-							<th>File</th>
-							<th>Findings</th>
-							<th>Imported</th>
+							<th>{t($lang, 'home_col_tool')}</th>
+							<th>{t($lang, 'home_col_file')}</th>
+							<th>{t($lang, 'home_col_findings')}</th>
+							<th>{t($lang, 'home_col_imported')}</th>
 							<th></th>
 						</tr>
 					</thead>
@@ -240,7 +252,7 @@
 								<td class="mono">{r.finding_count}</td>
 								<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
 								<td>
-									<a class="button" href="/reports/{r.id}">ดู →</a>
+									<a class="button" href="/reports/{r.id}">{t($lang, 'home_view')}</a>
 									<a class="button" href="/api/export/report/{r.id}">⬇️</a>
 								</td>
 							</tr>
@@ -254,10 +266,10 @@
 					<thead>
 						<tr>
 							<th></th>
-							<th>Name</th>
-							<th>Date modified</th>
-							<th>Type</th>
-							<th>Reports</th>
+							<th>{t($lang, 'home_col_name')}</th>
+							<th>{t($lang, 'home_col_modified')}</th>
+							<th>{t($lang, 'home_col_type')}</th>
+							<th>{t($lang, 'home_col_reports')}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -274,7 +286,7 @@
 									{/if}
 								</td>
 								<td class="mono">{latest ? new Date(latest).toLocaleString() : '—'}</td>
-								<td class="muted">File folder</td>
+								<td class="muted">{t($lang, 'home_file_folder')}</td>
 								<td class="mono">{group.reports.length}</td>
 							</tr>
 						{/each}
