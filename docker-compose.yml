@@ -23,7 +23,7 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgres://postgres:postgres@db:5432/va_scan
-      ORIGIN: https://10.101.118.167
+      ORIGIN: https://odtstvascan.kku.ac.th
       # SvelteKit's own request-body cap (separate from nginx's
       # client_max_body_size) — defaults to 512kb, must be raised to match.
       BODY_SIZE_LIMIT: 100M
