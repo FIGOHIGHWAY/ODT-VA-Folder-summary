@@ -236,6 +236,44 @@ export async function getYearlyBreakdown() {
 }
 
 /**
+ * Domain breakdown for a single severity — how many findings of that
+ * severity each domain has, most first. Powers the dashboard's drill-down
+ * from a severity total to "which domains does this come from".
+ * @param {string} severity
+ * @returns {Promise<Array<{ domain: string, count: number }>>}
+ */
+export async function getDomainCountsBySeverity(severity) {
+	const { rows } = await pool.query(
+		`SELECT COALESCE(r.domain, 'unknown') AS domain, COUNT(*)::int AS count
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE f.severity = $1
+		 GROUP BY domain
+		 ORDER BY count DESC, domain`,
+		[severity]
+	);
+	return rows;
+}
+
+/**
+ * Findings of a single severity within a single domain, most recent first —
+ * the next drill-down step after {@link getDomainCountsBySeverity}.
+ * @param {string} severity
+ * @param {string} domain
+ */
+export async function listFindingsBySeverityAndDomain(severity, domain) {
+	const { rows } = await pool.query(
+		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE f.severity = $1 AND COALESCE(r.domain, 'unknown') = $2
+		 ORDER BY r.imported_at DESC, f.id`,
+		[severity, domain]
+	);
+	return rows;
+}
+
+/**
  * Full-text-ish search across findings (title, identifier, description,
  * solution, CVE, target) and their parent report's domain, case-insensitive.
  * @param {string} query

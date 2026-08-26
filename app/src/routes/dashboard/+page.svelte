@@ -13,6 +13,29 @@
 	let showSeverityTable = $state(false);
 	let showYearlyTable = $state(false);
 
+	/** @type {string|null} severity currently expanded to show its domain breakdown */
+	let openSeverity = $state(null);
+	let breakdownLoading = $state(false);
+	/** @type {Array<{domain: string, count: number}>} */
+	let breakdown = $state([]);
+
+	async function toggleSeverity(severity) {
+		if (openSeverity === severity) {
+			openSeverity = null;
+			return;
+		}
+		openSeverity = severity;
+		breakdownLoading = true;
+		breakdown = [];
+		try {
+			const res = await fetch(`/api/dashboard/severity/${severity}`);
+			const body = await res.json();
+			breakdown = body.domains ?? [];
+		} finally {
+			breakdownLoading = false;
+		}
+	}
+
 	/** @type {{ x: number, y: number, text: string } | null} */
 	let tooltip = $state(null);
 
@@ -83,7 +106,13 @@
 			{:else}
 				<div class="hbar-chart">
 					{#each data.summary.bySeverity as s (s.severity)}
-						<div class="hbar-row">
+						<button
+							type="button"
+							class="hbar-row hbar-row-btn"
+							class:active={openSeverity === s.severity}
+							onclick={() => toggleSeverity(s.severity)}
+							disabled={s.count === 0}
+						>
 							<span class="hbar-label sev {s.severity}">{SEVERITY_LABEL[s.severity]}</span>
 							<div class="hbar-track">
 								<div
@@ -92,7 +121,31 @@
 								></div>
 							</div>
 							<span class="hbar-value mono">{s.count}</span>
-						</div>
+						</button>
+						{#if openSeverity === s.severity}
+							<div class="breakdown-panel">
+								{#if breakdownLoading}
+									<div class="empty">กำลังโหลด...</div>
+								{:else if breakdown.length === 0}
+									<div class="empty">ไม่พบ domain</div>
+								{:else}
+									<div class="breakdown-hint">
+										{SEVERITY_LABEL[s.severity]} มาจาก domain เหล่านี้ — คลิกเพื่อดูรายการ finding
+									</div>
+									<div class="breakdown-list">
+										{#each breakdown as d (d.domain)}
+											<a
+												class="breakdown-item"
+												href="/dashboard/{s.severity}/{d.domain}"
+											>
+												<span class="mono">{d.domain}</span>
+												<span class="breakdown-count mono">{d.count}</span>
+											</a>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/if}
 					{/each}
 				</div>
 
@@ -289,6 +342,67 @@
 	.hbar-value {
 		font-size: 0.85rem;
 		color: var(--text);
+	}
+
+	.hbar-row-btn {
+		background: none;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		padding: 0.15rem 0.3rem;
+		cursor: pointer;
+		font: inherit;
+		text-align: left;
+		width: 100%;
+	}
+	.hbar-row-btn:hover:not(:disabled) {
+		border-color: var(--border);
+		background: var(--code-bg);
+	}
+	.hbar-row-btn.active {
+		border-color: var(--accent);
+		background: var(--code-bg);
+	}
+	.hbar-row-btn:disabled {
+		cursor: default;
+		opacity: 0.6;
+	}
+
+	.breakdown-panel {
+		margin: 0.3rem 0 0.6rem;
+		padding: 0.75rem 0.9rem;
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.breakdown-hint {
+		font-size: 0.78rem;
+		color: var(--muted);
+		margin-bottom: 0.6rem;
+	}
+	.breakdown-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+	.breakdown-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.4rem 0.6rem;
+		border-radius: 6px;
+		text-decoration: none;
+		color: var(--text);
+		font-size: 0.85rem;
+		background: var(--panel);
+		border: 1px solid var(--border);
+	}
+	.breakdown-item:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.breakdown-count {
+		color: var(--muted);
+		font-size: 0.8rem;
 	}
 
 	.sev-fill-critical {
