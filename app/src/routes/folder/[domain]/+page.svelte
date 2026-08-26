@@ -1,6 +1,37 @@
 <script>
 	let { data } = $props();
 
+	/** group reports by the calendar date they were imported on ("รอบสแกน") — same date-grouping used for the latest-round PDF export/AI summary */
+	const dateGroups = $derived.by(() => {
+		/** @type {Map<string, Array<object>>} */
+		const byDate = new Map();
+		for (const r of data.reports) {
+			const key = new Date(r.imported_at).toLocaleDateString('sv-SE'); // YYYY-MM-DD, locale-stable
+			if (!byDate.has(key)) byDate.set(key, []);
+			byDate.get(key).push(r);
+		}
+		return [...byDate.entries()]
+			.map(([date, reports]) => ({ date, reports }))
+			.sort((a, b) => (a.date < b.date ? 1 : -1));
+	});
+
+	/** @type {Set<string>} dates collapsed by the user — the latest round starts open, the rest start closed */
+	let collapsedDates = $state(new Set());
+	let collapsedInit = false;
+	$effect(() => {
+		if (!collapsedInit && dateGroups.length > 0) {
+			collapsedInit = true;
+			collapsedDates = new Set(dateGroups.slice(1).map((g) => g.date));
+		}
+	});
+
+	function toggleDate(date) {
+		const next = new Set(collapsedDates);
+		if (next.has(date)) next.delete(date);
+		else next.add(date);
+		collapsedDates = next;
+	}
+
 	let sharePath = $state(data.shareLink ? `/share/${data.shareLink.token}` : null);
 	let shareBusy = $state(false);
 	let copied = $state(false);
@@ -123,36 +154,61 @@
 		</div>
 	{/if}
 
-	<div class="panel">
-		<div class="scroll">
-			<table>
-				<thead>
-					<tr>
-						<th>#</th>
-						<th>Tool</th>
-						<th>File</th>
-						<th>Findings</th>
-						<th>Imported</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.reports as r (r.id)}
-						<tr>
-							<td class="mono">{r.id}</td>
-							<td><span class="badge {r.source_tool}">{r.source_tool.toUpperCase()}</span></td>
-							<td>{r.original_filename}</td>
-							<td class="mono">{r.finding_count}</td>
-							<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
-							<td>
-								<a class="button" href="/reports/{r.id}">ดู →</a>
-								<a class="button" href="/api/export/report/{r.id}">⬇️</a>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+	<div class="date-folders">
+		{#each dateGroups as group, i (group.date)}
+			{@const isOpen = !collapsedDates.has(group.date)}
+			{@const findingTotal = group.reports.reduce((sum, r) => sum + r.finding_count, 0)}
+			<div class="panel date-folder">
+				<button
+					type="button"
+					class="date-folder-head"
+					onclick={() => toggleDate(group.date)}
+					aria-expanded={isOpen}
+				>
+					<span class="caret" class:open={isOpen}>▸</span>
+					<span class="folder-icon">📁</span>
+					<span class="date-label mono">{group.date}</span>
+					{#if i === 0}
+						<span class="badge ok">รอบล่าสุด</span>
+					{/if}
+					<span class="date-meta">
+						{group.reports.length} report(s) · {findingTotal} finding(s)
+					</span>
+				</button>
+
+				{#if isOpen}
+					<div class="scroll" style="margin-top:0.75rem">
+						<table>
+							<thead>
+								<tr>
+									<th>#</th>
+									<th>Tool</th>
+									<th>File</th>
+									<th>Findings</th>
+									<th>Imported</th>
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each group.reports as r (r.id)}
+									<tr>
+										<td class="mono">{r.id}</td>
+										<td><span class="badge {r.source_tool}">{r.source_tool.toUpperCase()}</span></td>
+										<td>{r.original_filename}</td>
+										<td class="mono">{r.finding_count}</td>
+										<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
+										<td>
+											<a class="button" href="/reports/{r.id}">ดู →</a>
+											<a class="button" href="/api/export/report/{r.id}">⬇️</a>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			</div>
+		{/each}
 	</div>
 </div>
 
@@ -190,5 +246,48 @@
 		font-family: inherit;
 		font-size: 0.85rem;
 		line-height: 1.6;
+	}
+
+	.date-folders {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	.date-folder {
+		margin-bottom: 0;
+	}
+	.date-folder-head {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		width: 100%;
+		background: none;
+		border: none;
+		cursor: pointer;
+		font: inherit;
+		color: var(--text);
+		text-align: left;
+		padding: 0;
+	}
+	.date-folder-head:hover {
+		color: var(--accent);
+	}
+	.caret {
+		display: inline-block;
+		color: var(--muted);
+		font-size: 0.8em;
+		transition: transform 0.15s;
+	}
+	.caret.open {
+		transform: rotate(90deg);
+	}
+	.date-label {
+		font-weight: 700;
+		font-size: 0.95rem;
+	}
+	.date-meta {
+		margin-left: auto;
+		color: var(--muted);
+		font-size: 0.8rem;
 	}
 </style>
