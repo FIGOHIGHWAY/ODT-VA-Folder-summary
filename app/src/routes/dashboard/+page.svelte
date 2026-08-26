@@ -62,7 +62,9 @@
 <div class="wrap">
 	<p class="eyebrow"><a href="/">← กลับหน้าแรก</a></p>
 	<h1>Dashboard</h1>
-	<p class="sub">สรุปภาพรวม finding ทั้งหมดที่นำเข้า และแนวโน้มแยกตามปี</p>
+	<p class="sub">
+		สรุปภาพรวมของ<strong>รอบสแกนล่าสุด</strong>ของแต่ละ domain เท่านั้น (ไม่รวมรอบเก่า) และแนวโน้มแยกตามปี
+	</p>
 
 	{#if data.dbError}
 		<div class="panel">

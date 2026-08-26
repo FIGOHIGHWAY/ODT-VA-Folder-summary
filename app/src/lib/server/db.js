@@ -157,9 +157,29 @@ export async function listReportsByDomain(limit = 200) {
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
+// Reusable CTE: for each domain (treating a missing domain as its own
+// 'unknown' group), the set of report ids from its most recent scan round
+// (every report imported on the same calendar date as that domain's latest
+// import). Joined against wherever "only the latest round" should apply —
+// the dashboard summarizes the current state, not the full scan history.
+const LATEST_ROUND_REPORTS_CTE = `
+	WITH domain_latest_date AS (
+		SELECT COALESCE(domain, 'unknown') AS domain_key, MAX(imported_at::date) AS max_date
+		FROM reports
+		GROUP BY domain_key
+	),
+	latest_round_reports AS (
+		SELECT r.id
+		FROM reports r
+		JOIN domain_latest_date d
+		  ON d.domain_key = COALESCE(r.domain, 'unknown') AND r.imported_at::date = d.max_date
+	)
+`;
+
 /**
  * Overall counters for the dashboard: totals plus a findings-by-severity and
- * findings-by-tool breakdown across all imported reports.
+ * findings-by-tool breakdown, scoped to each domain's most recent scan round
+ * only (not the full historical scan record).
  * @returns {Promise<{
  *   totalReports: number, totalFindings: number, totalDomains: number,
  *   yearsCovered: Array<number>,
@@ -171,17 +191,29 @@ export async function getDashboardSummary() {
 	const [{ rows: totals }, { rows: severityRows }, { rows: toolRows }, { rows: yearRows }] =
 		await Promise.all([
 			pool.query(
-				`SELECT
-					(SELECT COUNT(*) FROM reports)::int AS total_reports,
-					(SELECT COUNT(*) FROM findings)::int AS total_findings,
-					(SELECT COUNT(DISTINCT domain) FROM reports WHERE domain IS NOT NULL)::int AS total_domains`
-			),
-			pool.query(`SELECT severity, COUNT(*)::int AS count FROM findings GROUP BY severity`),
-			pool.query(
-				`SELECT source_tool, COUNT(*)::int AS count FROM findings GROUP BY source_tool`
+				`${LATEST_ROUND_REPORTS_CTE}
+				 SELECT
+					(SELECT COUNT(*) FROM latest_round_reports)::int AS total_reports,
+					(SELECT COUNT(*) FROM findings WHERE report_id IN (SELECT id FROM latest_round_reports))::int AS total_findings,
+					(SELECT COUNT(DISTINCT domain) FROM reports WHERE domain IS NOT NULL AND id IN (SELECT id FROM latest_round_reports))::int AS total_domains`
 			),
 			pool.query(
-				`SELECT DISTINCT EXTRACT(YEAR FROM imported_at)::int AS year FROM findings ORDER BY year`
+				`${LATEST_ROUND_REPORTS_CTE}
+				 SELECT severity, COUNT(*)::int AS count FROM findings
+				 WHERE report_id IN (SELECT id FROM latest_round_reports)
+				 GROUP BY severity`
+			),
+			pool.query(
+				`${LATEST_ROUND_REPORTS_CTE}
+				 SELECT source_tool, COUNT(*)::int AS count FROM findings
+				 WHERE report_id IN (SELECT id FROM latest_round_reports)
+				 GROUP BY source_tool`
+			),
+			pool.query(
+				`${LATEST_ROUND_REPORTS_CTE}
+				 SELECT DISTINCT EXTRACT(YEAR FROM imported_at)::int AS year FROM findings
+				 WHERE report_id IN (SELECT id FROM latest_round_reports)
+				 ORDER BY year`
 			)
 		]);
 
@@ -203,13 +235,16 @@ export async function getDashboardSummary() {
 
 /**
  * Findings-by-severity counts broken down per calendar year (by
- * `findings.imported_at`), for the dashboard's year-over-year chart.
+ * `findings.imported_at`), for the dashboard's year-over-year chart —
+ * scoped to each domain's latest scan round only.
  * @returns {Promise<Array<{ year: number, total: number, critical: number, high: number, medium: number, low: number, info: number }>>}
  */
 export async function getYearlyBreakdown() {
 	const { rows } = await pool.query(
-		`SELECT EXTRACT(YEAR FROM imported_at)::int AS year, severity, COUNT(*)::int AS count
+		`${LATEST_ROUND_REPORTS_CTE}
+		 SELECT EXTRACT(YEAR FROM imported_at)::int AS year, severity, COUNT(*)::int AS count
 		 FROM findings
+		 WHERE report_id IN (SELECT id FROM latest_round_reports)
 		 GROUP BY year, severity
 		 ORDER BY year`
 	);
@@ -237,17 +272,19 @@ export async function getYearlyBreakdown() {
 
 /**
  * Domain breakdown for a single severity — how many findings of that
- * severity each domain has, most first. Powers the dashboard's drill-down
- * from a severity total to "which domains does this come from".
+ * severity each domain has, most first, scoped to each domain's latest scan
+ * round. Powers the dashboard's drill-down from a severity total to "which
+ * domains does this come from".
  * @param {string} severity
  * @returns {Promise<Array<{ domain: string, count: number }>>}
  */
 export async function getDomainCountsBySeverity(severity) {
 	const { rows } = await pool.query(
-		`SELECT COALESCE(r.domain, 'unknown') AS domain, COUNT(*)::int AS count
+		`${LATEST_ROUND_REPORTS_CTE}
+		 SELECT COALESCE(r.domain, 'unknown') AS domain, COUNT(*)::int AS count
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
-		 WHERE f.severity = $1
+		 WHERE f.severity = $1 AND r.id IN (SELECT id FROM latest_round_reports)
 		 GROUP BY domain
 		 ORDER BY count DESC, domain`,
 		[severity]
@@ -256,17 +293,20 @@ export async function getDomainCountsBySeverity(severity) {
 }
 
 /**
- * Findings of a single severity within a single domain, most recent first —
- * the next drill-down step after {@link getDomainCountsBySeverity}.
+ * Findings of a single severity within a single domain, most recent first,
+ * scoped to that domain's latest scan round — the next drill-down step
+ * after {@link getDomainCountsBySeverity}.
  * @param {string} severity
  * @param {string} domain
  */
 export async function listFindingsBySeverityAndDomain(severity, domain) {
 	const { rows } = await pool.query(
-		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		`${LATEST_ROUND_REPORTS_CTE}
+		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
 		 WHERE f.severity = $1 AND COALESCE(r.domain, 'unknown') = $2
+		   AND r.id IN (SELECT id FROM latest_round_reports)
 		 ORDER BY r.imported_at DESC, f.id`,
 		[severity, domain]
 	);
