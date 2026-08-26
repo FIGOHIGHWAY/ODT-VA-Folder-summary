@@ -35,6 +35,20 @@
 			.sort((a, b) => new Date(b.imported_at) - new Date(a.imported_at))
 	);
 
+	let folderQuery = $state('');
+	const filteredDomains = $derived(
+		folderQuery.trim()
+			? (data.domains ?? []).filter((g) =>
+					g.domain.toLowerCase().includes(folderQuery.trim().toLowerCase())
+				)
+			: (data.domains ?? [])
+	);
+	const filteredReports = $derived(
+		folderQuery.trim()
+			? allReports.filter((r) => r.domain.toLowerCase().includes(folderQuery.trim().toLowerCase()))
+			: allReports
+	);
+
 	// Must match nginx's client_max_body_size — checked client-side so an
 	// oversized file gets a clear Thai message instead of nginx's raw HTML
 	// error page failing to parse as JSON.
@@ -224,10 +238,22 @@
 				{/each}
 			</div>
 		</div>
+		{#if data.domains.length > 0}
+			<input
+				type="text"
+				class="folder-search"
+				bind:value={folderQuery}
+				placeholder={$lang === 'th' ? '🔍 ค้นหา domain/IP...' : '🔍 Search domain/IP...'}
+			/>
+		{/if}
 		{#if data.dbError}
 			<div class="err-box">{t($lang, 'home_db_error')}: {data.dbError}</div>
 		{:else if data.domains.length === 0}
 			<div class="empty">{t($lang, 'home_no_reports')}</div>
+		{:else if folderQuery.trim() && (viewMode === 'details' ? filteredReports.length === 0 : filteredDomains.length === 0)}
+			<div class="empty">
+				{$lang === 'th' ? `ไม่พบ domain/IP ที่ตรงกับ "${folderQuery}"` : `No domain/IP matching "${folderQuery}"`}
+			</div>
 		{:else if viewMode === 'details'}
 			<div class="scroll">
 				<table>
@@ -243,7 +269,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each allReports as r (r.id)}
+						{#each filteredReports as r (r.id)}
 							<tr>
 								<td class="mono">{r.id}</td>
 								<td class="mono">{r.domain}</td>
@@ -273,7 +299,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each data.domains as group (group.domain)}
+						{#each filteredDomains as group (group.domain)}
 							{@const href = group.domain === 'unknown' ? null : `/folder/${group.domain}`}
 							{@const latest = group.reports[0]?.imported_at}
 							<tr class="explorer-row" class:disabled={!href}>
@@ -313,6 +339,21 @@
 		border-color: var(--accent);
 		color: var(--accent);
 		background: rgba(37, 99, 235, 0.05);
+	}
+
+	.folder-search {
+		width: 100%;
+		font: inherit;
+		padding: 0.5rem 0.75rem;
+		margin-bottom: 0.9rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--panel);
+		color: var(--text);
+	}
+	.folder-search:focus {
+		outline: none;
+		border-color: var(--accent);
 	}
 
 	.panel-toolbar {
