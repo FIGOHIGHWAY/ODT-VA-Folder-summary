@@ -1,0 +1,78 @@
+<html><head><title>Burp Scanner Report</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';img-src 'self' data:;style-src 'unsafe-inline'" />
+</head>
+<body>
+<div id="container">
+<div class="title"><h1>Burp Suite Professional</h1></div>
+<h1>Summary</h1>
+<div class="rule"></div>
+<h1>Contents</h1>
+<p class="TOCH0"><a href="#1">1.&nbsp;Cross-origin resource sharing: arbitrary origin trusted</a></p>
+<p class="TOCH0"><a href="#2">2.&nbsp;Cacheable HTTPS response</a></p>
+<br><div class="rule"></div>
+<span class="BODH0" id="1">1.&nbsp;<a href="https://portswigger.net/knowledgebase/issues/details/00200601_crossoriginresourcesharingarbitraryorigintrusted">Cross-origin resource sharing: arbitrary origin trusted</a></span>
+<br><a class="PREVNEXT" href="#2">Next</a>
+<br>
+<h2>Summary</h2>
+<table cellpadding="0" cellspacing="0" class="summary_table">
+<tr>
+<td rowspan="4" class="icon" valign="top" align="center"><div class='scan_issue_high_certain_rpt'></div></td>
+<td>Severity:&nbsp;&nbsp;</td>
+<td><b>High</b></td>
+</tr>
+<tr>
+<td>Confidence:&nbsp;&nbsp;</td>
+<td><b>Certain</b></td>
+</tr>
+<tr>
+<td>Host:&nbsp;&nbsp;</td>
+<td><b>https://app.example.com</b></td>
+</tr>
+<tr>
+<td>Path:&nbsp;&nbsp;</td>
+<td><b>/api/v1</b></td>
+</tr>
+</table>
+<h2>Issue detail</h2>
+<span class="TEXT"><p>The application implements a CORS policy for this request that allows access from any domain.</p></span>
+<h2>Issue background</h2>
+<span class="TEXT"><p>Cross-origin resource sharing (CORS) is a browser mechanism.</p></span>
+<h2>Issue remediation</h2>
+<span class="TEXT"><p>Use a whitelist of trusted domains instead of a wildcard origin.</p></span>
+<h2>References</h2>
+<span class="TEXT"><ul><li><a href="https://portswigger.net/web-security/cors">CORS</a></li></ul></span>
+<h2>Vulnerability classifications</h2><span class="TEXT"><ul><li><a href="https://cwe.mitre.org/data/definitions/942.html">CWE-942</a></li></ul></span>
+<h2>Request</h2>
+<div class="rr_div"><span>GET /api/v1 HTTP/2<br>Host: app.example.com<br></span></div>
+<h2>Response</h2>
+<div class="rr_div"><span>HTTP/2 200 OK<br></span></div>
+<div class="rule"></div>
+<span class="BODH0" id="2">2.&nbsp;<a href="https://portswigger.net/knowledgebase/issues/details/00201000_cacheablehttpsresponse">Cacheable HTTPS response</a></span>
+<br><a class="PREVNEXT" href="#1">Previous</a>
+<br>
+<h2>Summary</h2>
+<table cellpadding="0" cellspacing="0" class="summary_table">
+<tr>
+<td rowspan="4" class="icon" valign="top" align="center"><div class='scan_issue_info_certain_rpt'></div></td>
+<td>Severity:&nbsp;&nbsp;</td>
+<td><b>Information</b></td>
+</tr>
+<tr>
+<td>Confidence:&nbsp;&nbsp;</td>
+<td><b>Firm</b></td>
+</tr>
+<tr>
+<td>Host:&nbsp;&nbsp;</td>
+<td><b>https://app.example.com</b></td>
+</tr>
+<tr>
+<td>Path:&nbsp;&nbsp;</td>
+<td><b>/static/app.js</b></td>
+</tr>
+</table>
+<h2>Issue detail</h2>
+<span class="TEXT"><p>The response does not include a Cache-Control directive instructing browsers not to store it.</p></span>
+<h2>Issue remediation</h2>
+<span class="TEXT"><p>Add Cache-Control: no-store to prevent caching of sensitive responses.</p></span>
+</div>
+</body></html>

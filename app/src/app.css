@@ -178,6 +178,11 @@ button:disabled {
 	color: #b23a3f;
 }
 
+.badge.burp {
+	background: rgba(255, 102, 51, 0.15);
+	color: #cc5229;
+}
+
 table {
 	width: 100%;
 	border-collapse: collapse;
