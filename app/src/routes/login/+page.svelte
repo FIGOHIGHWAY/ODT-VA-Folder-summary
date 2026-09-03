@@ -17,7 +17,6 @@
 <div class="login-page">
 	<div class="login-card">
 		<img class="login-logo" src={logo} alt="ODT KKU" />
-		<p class="eyebrow">{t($lang, 'home_eyebrow')}</p>
 		<h1>{t($lang, 'home_title')}</h1>
 		<p class="sub">{t($lang, 'login_desc')}</p>
 
