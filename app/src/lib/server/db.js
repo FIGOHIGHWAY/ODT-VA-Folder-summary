@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { randomBytes } from 'node:crypto';
 import { env } from '$env/dynamic/private';
+import { extractScanDateFromFilename } from './scanDate.js';
 
 const { Pool } = pg;
 
@@ -75,13 +76,14 @@ export async function findReportByContentHash(contentHash) {
  */
 export async function insertReport({ sourceTool, originalFilename, findings, contentHash = null }) {
 	const domain = pickDomain(findings);
+	const scannedAt = extractScanDateFromFilename(originalFilename);
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
 
 		const reportResult = await client.query(
-			`INSERT INTO reports (source_tool, original_filename, domain, content_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
-			[sourceTool, originalFilename, domain, contentHash]
+			`INSERT INTO reports (source_tool, original_filename, domain, content_hash, scanned_at) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+			[sourceTool, originalFilename, domain, contentHash, scannedAt]
 		);
 		const reportId = reportResult.rows[0].id;
 
@@ -159,20 +161,28 @@ const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 // Reusable CTE: for each domain (treating a missing domain as its own
 // 'unknown' group), the set of report ids from its most recent scan round
-// (every report imported on the same calendar date as that domain's latest
-// import). Joined against wherever "only the latest round" should apply —
-// the dashboard summarizes the current state, not the full scan history.
+// (every report whose *effective* date — scanned_at when we could recover
+// it from the filename, else imported_at — falls on that domain's latest
+// such date). Joined against wherever "only the latest round" should
+// apply — the dashboard summarizes the current state, not the full scan
+// history. scanned_at matters because batch/catch-up uploads can happen
+// months after the scan actually ran, which would otherwise group an old
+// scan into a "round" alongside unrelated recent uploads.
 const LATEST_ROUND_REPORTS_CTE = `
-	WITH domain_latest_date AS (
-		SELECT COALESCE(domain, 'unknown') AS domain_key, MAX(imported_at::date) AS max_date
+	WITH report_dates AS (
+		SELECT id, COALESCE(domain, 'unknown') AS domain_key,
+		       COALESCE(scanned_at, imported_at)::date AS effective_date
 		FROM reports
+	),
+	domain_latest_date AS (
+		SELECT domain_key, MAX(effective_date) AS max_date
+		FROM report_dates
 		GROUP BY domain_key
 	),
 	latest_round_reports AS (
-		SELECT r.id
-		FROM reports r
-		JOIN domain_latest_date d
-		  ON d.domain_key = COALESCE(r.domain, 'unknown') AND r.imported_at::date = d.max_date
+		SELECT rd.id
+		FROM report_dates rd
+		JOIN domain_latest_date d ON d.domain_key = rd.domain_key AND rd.effective_date = d.max_date
 	)
 `;
 
@@ -211,8 +221,9 @@ export async function getDashboardSummary() {
 			),
 			pool.query(
 				`${LATEST_ROUND_REPORTS_CTE}
-				 SELECT DISTINCT EXTRACT(YEAR FROM imported_at)::int AS year FROM findings
-				 WHERE report_id IN (SELECT id FROM latest_round_reports)
+				 SELECT DISTINCT EXTRACT(YEAR FROM COALESCE(r.scanned_at, r.imported_at))::int AS year
+				 FROM reports r
+				 WHERE r.id IN (SELECT id FROM latest_round_reports)
 				 ORDER BY year`
 			)
 		]);
@@ -234,18 +245,21 @@ export async function getDashboardSummary() {
 }
 
 /**
- * Findings-by-severity counts broken down per calendar year (by
- * `findings.imported_at`), for the dashboard's year-over-year chart —
- * scoped to each domain's latest scan round only.
+ * Findings-by-severity counts broken down per calendar year (by each
+ * report's effective date — scanned_at when recoverable, else
+ * imported_at), for the dashboard's year-over-year chart — scoped to each
+ * domain's latest scan round only.
  * @returns {Promise<Array<{ year: number, total: number, critical: number, high: number, medium: number, low: number, info: number }>>}
  */
 export async function getYearlyBreakdown() {
 	const { rows } = await pool.query(
 		`${LATEST_ROUND_REPORTS_CTE}
-		 SELECT EXTRACT(YEAR FROM imported_at)::int AS year, severity, COUNT(*)::int AS count
-		 FROM findings
-		 WHERE report_id IN (SELECT id FROM latest_round_reports)
-		 GROUP BY year, severity
+		 SELECT EXTRACT(YEAR FROM COALESCE(r.scanned_at, r.imported_at))::int AS year,
+		        f.severity, COUNT(*)::int AS count
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE f.report_id IN (SELECT id FROM latest_round_reports)
+		 GROUP BY year, f.severity
 		 ORDER BY year`
 	);
 
@@ -463,13 +477,13 @@ export async function resolveShareToken(token) {
  */
 export async function listReportsForDomain(domain) {
 	const { rows } = await pool.query(
-		`SELECT r.id, r.source_tool, r.original_filename, r.imported_at,
+		`SELECT r.id, r.source_tool, r.original_filename, r.imported_at, r.scanned_at,
 		        COUNT(f.id)::int AS finding_count
 		 FROM reports r
 		 LEFT JOIN findings f ON f.report_id = r.id
 		 WHERE r.domain = $1
 		 GROUP BY r.id
-		 ORDER BY r.imported_at DESC`,
+		 ORDER BY COALESCE(r.scanned_at, r.imported_at) DESC`,
 		[domain]
 	);
 	return rows;

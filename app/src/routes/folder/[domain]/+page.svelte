@@ -1,12 +1,20 @@
 <script>
 	let { data } = $props();
 
-	/** group reports by the calendar date they were imported on ("รอบสแกน") — same date-grouping used for the latest-round PDF export/AI summary */
+	/**
+	 * Group reports by their effective scan date ("รอบสแกน") — scanned_at
+	 * when we could recover a real scan date from the filename, else
+	 * imported_at. Same effective-date logic used for the latest-round PDF
+	 * export/AI summary/dashboard, so a report uploaded long after it was
+	 * actually scanned still lands in its correct historical round instead
+	 * of getting lumped in with whatever else was uploaded that day.
+	 */
 	const dateGroups = $derived.by(() => {
 		/** @type {Map<string, Array<object>>} */
 		const byDate = new Map();
 		for (const r of data.reports) {
-			const key = new Date(r.imported_at).toLocaleDateString('sv-SE'); // YYYY-MM-DD, locale-stable
+			const effective = r.scanned_at ?? r.imported_at;
+			const key = new Date(effective).toLocaleDateString('sv-SE'); // YYYY-MM-DD, locale-stable
 			if (!byDate.has(key)) byDate.set(key, []);
 			byDate.get(key).push(r);
 		}
