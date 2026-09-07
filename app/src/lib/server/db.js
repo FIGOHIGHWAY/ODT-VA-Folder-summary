@@ -271,6 +271,32 @@ export async function getYearlyBreakdown() {
 }
 
 /**
+ * Top domains by total finding count, scoped to each domain's latest scan
+ * round only (not the full historical scan record) — powers the
+ * dashboard's "top domains" table.
+ * @param {number} limit
+ * @returns {Promise<Array<{ domain: string, count: number, critical: number, high: number }>>}
+ */
+export async function getTopDomainsByFindingCount(limit = 5) {
+	const { rows } = await pool.query(
+		`${LATEST_ROUND_REPORTS_CTE}
+		 SELECT
+		   COALESCE(r.domain, 'unknown') AS domain,
+		   COUNT(*)::int AS count,
+		   COUNT(*) FILTER (WHERE f.severity = 'critical')::int AS critical,
+		   COUNT(*) FILTER (WHERE f.severity = 'high')::int AS high
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE r.id IN (SELECT id FROM latest_round_reports)
+		 GROUP BY domain
+		 ORDER BY count DESC, domain
+		 LIMIT $1`,
+		[limit]
+	);
+	return rows;
+}
+
+/**
  * Domain breakdown for a single severity — how many findings of that
  * severity each domain has, most first, scoped to each domain's latest scan
  * round. Powers the dashboard's drill-down from a severity total to "which

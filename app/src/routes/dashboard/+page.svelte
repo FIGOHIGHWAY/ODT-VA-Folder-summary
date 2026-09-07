@@ -97,6 +97,50 @@
 
 		<div class="panel">
 			<div class="chart-head">
+				<h2>Top 5 Domain ที่มีช่องโหว่มากที่สุด (รอบล่าสุด)</h2>
+			</div>
+			{#if data.topDomains.length === 0}
+				<div class="empty">ยังไม่มี finding ในระบบ</div>
+			{:else}
+				<div class="scroll">
+					<table>
+						<thead>
+							<tr>
+								<th>#</th>
+								<th>Domain</th>
+								<th>Findings</th>
+								<th>Critical</th>
+								<th>High</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each data.topDomains as d, i (d.domain)}
+								<tr>
+									<td class="mono">{i + 1}</td>
+									<td class="mono">{d.domain}</td>
+									<td class="mono">{d.count}</td>
+									<td class="mono">
+										{#if d.critical > 0}<span class="sev critical">{d.critical}</span>{:else}0{/if}
+									</td>
+									<td class="mono">
+										{#if d.high > 0}<span class="sev high">{d.high}</span>{:else}0{/if}
+									</td>
+									<td>
+										{#if d.domain !== 'unknown'}
+											<a class="button" href="/folder/{d.domain}">ดู →</a>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+
+		<div class="panel">
+			<div class="chart-head">
 				<h2>Findings แยกตาม Severity (รวมทุกปี)</h2>
 				<button class="button" onclick={() => (showSeverityTable = !showSeverityTable)}>
 					{showSeverityTable ? 'ซ่อนตาราง' : 'ดูตาราง'}
