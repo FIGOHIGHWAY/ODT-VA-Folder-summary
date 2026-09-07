@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import {
 	listReportsForDomain,
-	getActiveShareLink,
+	getActiveShareLinks,
 	getAiSummary,
 	getUserAiKey
 } from '$lib/server/db.js';
@@ -19,8 +19,8 @@ export async function load({ params, locals }) {
 	}
 
 	const email = locals.user?.email;
-	const [shareLink, aiSummary, userAiKey] = await Promise.all([
-		getActiveShareLink(domain),
+	const [shareLinks, aiSummary, userAiKey] = await Promise.all([
+		getActiveShareLinks(domain),
 		getAiSummary(domain),
 		email ? getUserAiKey(email) : null
 	]);
@@ -28,7 +28,7 @@ export async function load({ params, locals }) {
 	return {
 		domain,
 		reports,
-		shareLink,
+		shareLinks,
 		aiSummary,
 		hasOwnAiKey: Boolean(userAiKey),
 		canGenerateReport: canGenerateReport(locals.user?.role ?? 'user')

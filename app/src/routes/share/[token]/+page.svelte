@@ -10,8 +10,11 @@
 	<p class="eyebrow">shared report · read-only</p>
 	<h1 class="mono">{data.domain}</h1>
 	<p class="sub">
-		ลิงก์แชร์นี้แสดงเฉพาะ finding ของ domain นี้เท่านั้น (ไม่ต้อง login) —
-		{data.findings.length} finding(s) จาก {data.reports.length} report(s)
+		ลิงก์แชร์นี้แสดงเฉพาะ finding ของ domain นี้เท่านั้น (ไม่ต้อง login)
+		{#if data.roundDate}
+			— เฉพาะรอบสแกนวันที่ <strong>{new Date(data.roundDate).toLocaleDateString('sv-SE')}</strong>
+		{/if}
+		— {data.findings.length} finding(s) จาก {data.reports.length} report(s)
 	</p>
 
 	<div class="panel">

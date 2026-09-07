@@ -417,57 +417,81 @@ export async function saveAiSummary({ domain, summary, model, findingCount }) {
 }
 
 /**
- * Get the active (non-revoked) share link for a domain, if one exists.
+ * Get every active (non-revoked) share link for a domain — one domain can
+ * have several active links at once, each scoped to a different scan round
+ * (round_date), plus at most one "all rounds" link (round_date IS NULL).
  * @param {string} domain
+ * @returns {Promise<Array<{ token: string, domain: string, round_date: string|null, created_at: Date }>>}
  */
-export async function getActiveShareLink(domain) {
+export async function getActiveShareLinks(domain) {
 	const { rows } = await pool.query(
-		`SELECT token, domain, created_at FROM share_links
+		`SELECT token, domain, round_date, created_at FROM share_links
 		 WHERE domain = $1 AND revoked_at IS NULL
-		 ORDER BY created_at DESC LIMIT 1`,
+		 ORDER BY round_date DESC NULLS LAST, created_at DESC`,
 		[domain]
+	);
+	return rows;
+}
+
+/**
+ * Get the active share link for a domain scoped to one specific round
+ * (or the "all rounds" link when roundDate is null), if one exists.
+ * @param {string} domain
+ * @param {string|null} roundDate YYYY-MM-DD, or null for the "all rounds" link
+ */
+export async function getActiveShareLinkForRound(domain, roundDate = null) {
+	const { rows } = await pool.query(
+		`SELECT token, domain, round_date, created_at FROM share_links
+		 WHERE domain = $1 AND revoked_at IS NULL AND round_date IS NOT DISTINCT FROM $2
+		 ORDER BY created_at DESC LIMIT 1`,
+		[domain, roundDate]
 	);
 	return rows[0] ?? null;
 }
 
 /**
  * Create a new share link for a domain (an unguessable random token — the
- * link itself is the access control, so no login is required to view it).
- * @param {{ domain: string, createdBy?: string|null }} params
+ * link itself is the access control, so no login is required to view it),
+ * scoped to one scan round, or every round when roundDate is null.
+ * @param {{ domain: string, roundDate?: string|null, createdBy?: string|null }} params
  */
-export async function createShareLink({ domain, createdBy = null }) {
+export async function createShareLink({ domain, roundDate = null, createdBy = null }) {
 	const token = randomBytes(18).toString('base64url');
 	const { rows } = await pool.query(
-		`INSERT INTO share_links (token, domain, created_by) VALUES ($1, $2, $3)
-		 RETURNING token, domain, created_at`,
-		[token, domain, createdBy]
+		`INSERT INTO share_links (token, domain, round_date, created_by) VALUES ($1, $2, $3, $4)
+		 RETURNING token, domain, round_date, created_at`,
+		[token, domain, roundDate, createdBy]
 	);
 	return rows[0];
 }
 
 /**
- * Revoke every active share link for a domain.
+ * Revoke the active share link for a domain scoped to one specific round
+ * (or the "all rounds" link when roundDate is null).
  * @param {string} domain
+ * @param {string|null} roundDate
  */
-export async function revokeShareLinksForDomain(domain) {
+export async function revokeShareLinkForRound(domain, roundDate = null) {
 	await pool.query(
-		`UPDATE share_links SET revoked_at = now() WHERE domain = $1 AND revoked_at IS NULL`,
-		[domain]
+		`UPDATE share_links SET revoked_at = now()
+		 WHERE domain = $1 AND revoked_at IS NULL AND round_date IS NOT DISTINCT FROM $2`,
+		[domain, roundDate]
 	);
 }
 
 /**
- * Resolve a share token to its domain, or null if the token doesn't exist
- * or has been revoked.
+ * Resolve a share token to its domain and scoped round date, or null if the
+ * token doesn't exist or has been revoked.
  * @param {string} token
- * @returns {Promise<string|null>}
+ * @returns {Promise<{ domain: string, roundDate: string|null }|null>}
  */
 export async function resolveShareToken(token) {
 	const { rows } = await pool.query(
-		`SELECT domain FROM share_links WHERE token = $1 AND revoked_at IS NULL`,
+		`SELECT domain, round_date FROM share_links WHERE token = $1 AND revoked_at IS NULL`,
 		[token]
 	);
-	return rows[0]?.domain ?? null;
+	if (!rows[0]) return null;
+	return { domain: rows[0].domain, roundDate: rows[0].round_date };
 }
 
 /**
@@ -506,6 +530,52 @@ export async function listFindingsForDomain(domain) {
 		     WHEN 'low' THEN 3 ELSE 4
 		   END, f.id`,
 		[domain]
+	);
+	return rows;
+}
+
+/**
+ * Reports for a single domain scoped to one scan round (by effective date —
+ * scanned_at when recoverable, else imported_at), or every report when
+ * roundDate is null. Backs a round-scoped share link.
+ * @param {string} domain
+ * @param {string|null} roundDate YYYY-MM-DD, or null for every round
+ */
+export async function listReportsForDomainRound(domain, roundDate) {
+	if (roundDate === null) return listReportsForDomain(domain);
+	const { rows } = await pool.query(
+		`SELECT r.id, r.source_tool, r.original_filename, r.imported_at, r.scanned_at,
+		        COUNT(f.id)::int AS finding_count
+		 FROM reports r
+		 LEFT JOIN findings f ON f.report_id = r.id
+		 WHERE r.domain = $1 AND COALESCE(r.scanned_at, r.imported_at)::date = $2
+		 GROUP BY r.id
+		 ORDER BY COALESCE(r.scanned_at, r.imported_at) DESC`,
+		[domain, roundDate]
+	);
+	return rows;
+}
+
+/**
+ * Findings for a single domain scoped to one scan round (by effective
+ * date), or every finding when roundDate is null. Backs a round-scoped
+ * share link.
+ * @param {string} domain
+ * @param {string|null} roundDate YYYY-MM-DD, or null for every round
+ */
+export async function listFindingsForDomainRound(domain, roundDate) {
+	if (roundDate === null) return listFindingsForDomain(domain);
+	const { rows } = await pool.query(
+		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE r.domain = $1 AND COALESCE(r.scanned_at, r.imported_at)::date = $2
+		 ORDER BY
+		   CASE f.severity
+		     WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
+		     WHEN 'low' THEN 3 ELSE 4
+		   END, f.id`,
+		[domain, roundDate]
 	);
 	return rows;
 }

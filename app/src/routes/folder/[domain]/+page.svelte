@@ -40,47 +40,69 @@
 		collapsedDates = next;
 	}
 
-	let sharePath = $state(data.shareLink ? `/share/${data.shareLink.token}` : null);
-	let shareBusy = $state(false);
-	let copied = $state(false);
+/** key used in the sharePaths/shareBusy maps for the "all rounds" link (round_date IS NULL) */
+	const ALL_ROUNDS_KEY = '__all__';
+
+	/** @type {Record<string, string>} round key ('YYYY-MM-DD' or ALL_ROUNDS_KEY) -> "/share/<token>" */
+	let sharePaths = $state(
+		Object.fromEntries(
+			(data.shareLinks ?? []).map((link) => [
+				link.round_date ?? ALL_ROUNDS_KEY,
+				`/share/${link.token}`
+			])
+		)
+	);
+	let shareBusy = $state(new Set());
+	let copiedRound = $state(null);
 
 	function toAbsolute(path) {
 		return typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
 	}
 
-	async function shareDomain() {
-		shareBusy = true;
+	async function shareRound(roundDate) {
+		const key = roundDate ?? ALL_ROUNDS_KEY;
+		shareBusy = new Set(shareBusy).add(key);
 		try {
 			const res = await fetch('/api/share', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ domain: data.domain })
+				body: JSON.stringify({ domain: data.domain, roundDate })
 			});
 			const body = await res.json();
-			if (res.ok) sharePath = body.path;
+			if (res.ok) sharePaths = { ...sharePaths, [key]: body.path };
 		} finally {
-			shareBusy = false;
+			const next = new Set(shareBusy);
+			next.delete(key);
+			shareBusy = next;
 		}
 	}
 
-	async function unshareDomain() {
-		shareBusy = true;
+	async function unshareRound(roundDate) {
+		const key = roundDate ?? ALL_ROUNDS_KEY;
+		shareBusy = new Set(shareBusy).add(key);
 		try {
 			await fetch('/api/share', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ domain: data.domain })
+				body: JSON.stringify({ domain: data.domain, roundDate })
 			});
-			sharePath = null;
+			const next = { ...sharePaths };
+			delete next[key];
+			sharePaths = next;
 		} finally {
-			shareBusy = false;
+			const next = new Set(shareBusy);
+			next.delete(key);
+			shareBusy = next;
 		}
 	}
 
-	async function copyShareUrl() {
-		await navigator.clipboard.writeText(toAbsolute(sharePath));
-		copied = true;
-		setTimeout(() => (copied = false), 1500);
+	async function copyShareUrl(roundDate) {
+		const key = roundDate ?? ALL_ROUNDS_KEY;
+		await navigator.clipboard.writeText(toAbsolute(sharePaths[key]));
+		copiedRound = key;
+		setTimeout(() => {
+			if (copiedRound === key) copiedRound = null;
+		}, 1500);
 	}
 
 	/** @type {{ summary: string, model: string }|null} */
@@ -137,16 +159,31 @@
 				{/if}
 			{/if}
 
-			{#if sharePath}
-				<button type="button" class="button" disabled={shareBusy} onclick={copyShareUrl}>
-					{copied ? '✅ คัดลอกแล้ว' : '🔗 คัดลอกลิงก์'}
+			{#if sharePaths[ALL_ROUNDS_KEY]}
+				<button
+					type="button"
+					class="button"
+					disabled={shareBusy.has(ALL_ROUNDS_KEY)}
+					onclick={() => copyShareUrl(null)}
+				>
+					{copiedRound === ALL_ROUNDS_KEY ? '✅ คัดลอกแล้ว' : '🔗 คัดลอกลิงก์ (ทุกรอบ)'}
 				</button>
-				<button type="button" class="button" disabled={shareBusy} onclick={unshareDomain}>
-					ยกเลิกแชร์
+				<button
+					type="button"
+					class="button"
+					disabled={shareBusy.has(ALL_ROUNDS_KEY)}
+					onclick={() => unshareRound(null)}
+				>
+					ยกเลิกแชร์ทุกรอบ
 				</button>
 			{:else}
-				<button type="button" class="button" disabled={shareBusy} onclick={shareDomain}>
-					🔗 แชร์
+				<button
+					type="button"
+					class="button"
+					disabled={shareBusy.has(ALL_ROUNDS_KEY)}
+					onclick={() => shareRound(null)}
+				>
+					🔗 แชร์ทุกรอบ
 				</button>
 			{/if}
 		</div>
@@ -167,22 +204,53 @@
 			{@const isOpen = !collapsedDates.has(group.date)}
 			{@const findingTotal = group.reports.reduce((sum, r) => sum + r.finding_count, 0)}
 			<div class="panel date-folder">
-				<button
-					type="button"
-					class="date-folder-head"
-					onclick={() => toggleDate(group.date)}
-					aria-expanded={isOpen}
-				>
-					<span class="caret" class:open={isOpen}>▸</span>
-					<span class="folder-icon">📁</span>
-					<span class="date-label mono">{group.date}</span>
-					{#if i === 0}
-						<span class="badge ok">รอบล่าสุด</span>
-					{/if}
-					<span class="date-meta">
-						{group.reports.length} report(s) · {findingTotal} finding(s)
-					</span>
-				</button>
+				<div class="date-folder-head-row">
+					<button
+						type="button"
+						class="date-folder-head"
+						onclick={() => toggleDate(group.date)}
+						aria-expanded={isOpen}
+					>
+						<span class="caret" class:open={isOpen}>▸</span>
+						<span class="folder-icon">📁</span>
+						<span class="date-label mono">{group.date}</span>
+						{#if i === 0}
+							<span class="badge ok">รอบล่าสุด</span>
+						{/if}
+						<span class="date-meta">
+							{group.reports.length} report(s) · {findingTotal} finding(s)
+						</span>
+					</button>
+					<div class="round-share-actions">
+						{#if sharePaths[group.date]}
+							<button
+								type="button"
+								class="button share-btn"
+								disabled={shareBusy.has(group.date)}
+								onclick={() => copyShareUrl(group.date)}
+							>
+								{copiedRound === group.date ? '✅ คัดลอกแล้ว' : '🔗 คัดลอกลิงก์'}
+							</button>
+							<button
+								type="button"
+								class="button share-btn"
+								disabled={shareBusy.has(group.date)}
+								onclick={() => unshareRound(group.date)}
+							>
+								ยกเลิกแชร์
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="button share-btn"
+								disabled={shareBusy.has(group.date)}
+								onclick={() => shareRound(group.date)}
+							>
+								🔗 แชร์รอบนี้
+							</button>
+						{/if}
+					</div>
+				</div>
 
 				{#if isOpen}
 					<div class="scroll" style="margin-top:0.75rem">
@@ -264,11 +332,17 @@
 	.date-folder {
 		margin-bottom: 0;
 	}
+	.date-folder-head-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
 	.date-folder-head {
 		display: flex;
 		align-items: center;
 		gap: 0.55rem;
-		width: 100%;
+		flex: 1;
+		min-width: 0;
 		background: none;
 		border: none;
 		cursor: pointer;
@@ -276,6 +350,16 @@
 		color: var(--text);
 		text-align: left;
 		padding: 0;
+	}
+	.round-share-actions {
+		display: flex;
+		gap: 0.4rem;
+		flex: 0 0 auto;
+	}
+	.round-share-actions .share-btn {
+		font-size: 0.75rem;
+		padding: 0.3rem 0.6rem;
+		white-space: nowrap;
 	}
 	.date-folder-head:hover {
 		color: var(--accent);
