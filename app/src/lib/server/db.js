@@ -368,7 +368,7 @@ export async function searchFindings(query, limit = 200) {
 	const { rows } = await pool.query(
 		`SELECT f.id, f.report_id, f.source_tool, f.target, f.identifier, f.title, f.severity,
 		        f.description, f.solution, f.cvss_score, f.cve, f.affected_url_or_port,
-		        r.domain, r.original_filename
+		        f.confidence, f.raw_evidence, r.domain, r.original_filename
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
 		 WHERE f.title ILIKE $1

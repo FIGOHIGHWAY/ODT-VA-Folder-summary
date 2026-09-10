@@ -1,4 +1,6 @@
 <script>
+	import FindingDetail from '$lib/FindingDetail.svelte';
+
 	let { data } = $props();
 
 	/** @type {Set<number>} finding ids currently expanded to show full detail */
@@ -70,31 +72,12 @@
 							{#if isOpen}
 								<tr class="detail-row">
 									<td colspan="7">
-										<div class="detail-grid">
-											<div class="detail-field">
-												<div class="detail-label">Source tool</div>
-												<div class="detail-value">
-													<span class="badge {f.source_tool}">{f.source_tool.toUpperCase()}</span>
-												</div>
-											</div>
-											<div class="detail-field">
-												<div class="detail-label">File</div>
-												<div class="detail-value">{f.original_filename ?? '—'}</div>
-											</div>
-											<div class="detail-field">
-												<div class="detail-label">Imported</div>
-												<div class="detail-value mono">
-													{new Date(f.report_imported_at).toLocaleString()}
-												</div>
-											</div>
-											<div class="detail-field full">
-												<div class="detail-label">Description</div>
-												<div class="detail-value">{f.description || '—'}</div>
-											</div>
-											<div class="detail-field full">
-												<div class="detail-label">Solution</div>
-												<div class="detail-value">{f.solution || '—'}</div>
-											</div>
+										<FindingDetail finding={f} />
+										<div class="extra-meta">
+											<span class="detail-label">File</span>
+											<span class="mono">{f.original_filename ?? '—'}</span>
+											<span class="detail-label">Imported</span>
+											<span class="mono">{new Date(f.report_imported_at).toLocaleString()}</span>
 										</div>
 									</td>
 								</tr>
@@ -136,25 +119,18 @@
 		background: var(--code-bg);
 		padding: 1rem 1.25rem;
 	}
-	.detail-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 0.9rem;
+	.extra-meta {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		flex-wrap: wrap;
+		margin-top: 0.75rem;
+		font-size: 0.8rem;
 	}
-	.detail-field.full {
-		grid-column: 1 / -1;
-	}
-	.detail-label {
+	.extra-meta .detail-label {
 		font-size: 0.72rem;
 		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		margin-bottom: 0.25rem;
-	}
-	.detail-value {
-		font-size: 0.88rem;
-		white-space: pre-wrap;
-		word-break: break-word;
-		line-height: 1.5;
 	}
 </style>

@@ -1,4 +1,6 @@
 <script>
+	import FindingDetail from '$lib/FindingDetail.svelte';
+
 	let { data } = $props();
 
 	/** @type {Set<number>} finding ids currently expanded to show full detail */
@@ -64,36 +66,7 @@
 							{#if isOpen}
 								<tr class="detail-row">
 									<td colspan="7">
-										<div class="detail-grid">
-											<div class="detail-field">
-												<div class="detail-label">Source tool</div>
-												<div class="detail-value">
-													<span class="badge {f.source_tool}">{f.source_tool.toUpperCase()}</span>
-												</div>
-											</div>
-											<div class="detail-field">
-												<div class="detail-label">Target</div>
-												<div class="detail-value mono">{f.target ?? '—'}</div>
-											</div>
-											<div class="detail-field">
-												<div class="detail-label">Affected URL / port</div>
-												<div class="detail-value mono">{f.affected_url_or_port ?? '—'}</div>
-											</div>
-											{#if f.confidence}
-												<div class="detail-field">
-													<div class="detail-label">Confidence</div>
-													<div class="detail-value">{f.confidence}</div>
-												</div>
-											{/if}
-											<div class="detail-field full">
-												<div class="detail-label">Description</div>
-												<div class="detail-value">{f.description || '—'}</div>
-											</div>
-											<div class="detail-field full">
-												<div class="detail-label">Solution</div>
-												<div class="detail-value">{f.solution || '—'}</div>
-											</div>
-										</div>
+										<FindingDetail finding={f} />
 									</td>
 								</tr>
 							{/if}
@@ -127,26 +100,5 @@
 	.detail-row td {
 		background: var(--code-bg);
 		padding: 1rem 1.25rem;
-	}
-	.detail-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 0.9rem;
-	}
-	.detail-field.full {
-		grid-column: 1 / -1;
-	}
-	.detail-label {
-		font-size: 0.72rem;
-		color: var(--muted);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		margin-bottom: 0.25rem;
-	}
-	.detail-value {
-		font-size: 0.88rem;
-		white-space: pre-wrap;
-		word-break: break-word;
-		line-height: 1.5;
 	}
 </style>

@@ -1,5 +1,17 @@
 <script>
+	import FindingDetail from '$lib/FindingDetail.svelte';
+
 	let { data } = $props();
+
+	/** @type {Set<number>} finding ids currently expanded to show full detail */
+	let expanded = $state(new Set());
+
+	function toggle(id) {
+		const next = new Set(expanded);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expanded = next;
+	}
 </script>
 
 <svelte:head>
@@ -48,10 +60,12 @@
 		{#if data.findings.length === 0}
 			<div class="empty">ไม่พบ finding ใน domain นี้</div>
 		{:else}
+			<p class="hint">คลิกแถวเพื่อดูรายละเอียดแบบเต็ม</p>
 			<div class="scroll">
 				<table>
 					<thead>
 						<tr>
+							<th></th>
 							<th>Severity</th>
 							<th>Identifier</th>
 							<th>Title</th>
@@ -62,7 +76,11 @@
 					</thead>
 					<tbody>
 						{#each data.findings as f (f.id)}
-							<tr>
+							{@const isOpen = expanded.has(f.id)}
+							<tr class="finding-row" onclick={() => toggle(f.id)} aria-expanded={isOpen}>
+								<td class="caret-cell">
+									<span class="caret" class:open={isOpen}>▸</span>
+								</td>
 								<td><span class="sev {f.severity}">{f.severity}</span></td>
 								<td class="mono">{f.identifier}</td>
 								<td>{f.title}</td>
@@ -74,6 +92,13 @@
 								</td>
 								<td class="mono">{f.cve ?? '—'}</td>
 							</tr>
+							{#if isOpen}
+								<tr class="detail-row">
+									<td colspan="7">
+										<FindingDetail finding={f} showReportLink={false} />
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>
@@ -81,3 +106,33 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	.hint {
+		font-size: 0.8rem;
+		color: var(--muted);
+		margin: 0 0 0.5rem;
+	}
+	.finding-row {
+		cursor: pointer;
+	}
+	.finding-row:hover td {
+		background: rgba(37, 99, 235, 0.06);
+	}
+	.caret-cell {
+		width: 1.5rem;
+	}
+	.caret {
+		display: inline-block;
+		color: var(--muted);
+		font-size: 0.8em;
+		transition: transform 0.15s;
+	}
+	.caret.open {
+		transform: rotate(90deg);
+	}
+	.detail-row td {
+		background: var(--code-bg);
+		padding: 1rem 1.25rem;
+	}
+</style>
