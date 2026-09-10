@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import AdmZip from 'adm-zip';
 import { parseReport } from '$lib/server/parsers/index.js';
 import { insertReport, findReportByContentHash } from '$lib/server/db.js';
@@ -23,11 +24,13 @@ async function parseAndInsert(filename, html) {
 	}
 
 	const { type, findings } = parseReport(html, filename);
+	const rawHtmlGz = gzipSync(Buffer.from(html, 'utf-8'));
 	const { reportId, insertedCount } = await insertReport({
 		sourceTool: type,
 		originalFilename: filename,
 		findings,
-		contentHash
+		contentHash,
+		rawHtmlGz
 	});
 	return { filename, reportId, type, insertedCount, findings };
 }

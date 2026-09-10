@@ -25,7 +25,12 @@
 			<h1>Report #{data.reportId}</h1>
 			<p class="sub">{data.findings.length} finding(s) — คลิกแถวเพื่อดูรายละเอียดแบบเต็ม</p>
 		</div>
-		<a class="button" href="/api/export/report/{data.reportId}">⬇️ ดึงไฟล์ (PDF)</a>
+		<div style="display:flex; gap:.5rem">
+			<a class="button" href="/api/export/report/{data.reportId}">⬇️ ดึงไฟล์ (PDF)</a>
+			{#if data.hasOriginal}
+				<a class="button" href="/api/reports/{data.reportId}/original">⬇️ ไฟล์ต้นฉบับ</a>
+			{/if}
+		</div>
 	</div>
 
 	<div class="panel">

@@ -279,7 +279,12 @@
 								<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
 								<td>
 									<a class="button" href="/reports/{r.id}">{t($lang, 'home_view')}</a>
-									<a class="button" href="/api/export/report/{r.id}">⬇️</a>
+									<a class="button" href="/api/export/report/{r.id}" title="PDF">⬇️ PDF</a>
+									{#if r.has_original}
+										<a class="button" href="/api/reports/{r.id}/original" title="Original file">
+											⬇️ Original
+										</a>
+									{/if}
 								</td>
 							</tr>
 						{/each}

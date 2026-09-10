@@ -275,7 +275,16 @@
 										<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
 										<td>
 											<a class="button" href="/reports/{r.id}">ดู →</a>
-											<a class="button" href="/api/export/report/{r.id}">⬇️</a>
+											<a class="button" href="/api/export/report/{r.id}" title="ดึงไฟล์ PDF">⬇️ PDF</a>
+											{#if r.has_original}
+												<a
+													class="button"
+													href="/api/reports/{r.id}/original"
+													title="ดาวน์โหลดไฟล์ต้นฉบับที่อัปโหลด"
+												>
+													⬇️ ต้นฉบับ
+												</a>
+											{/if}
 										</td>
 									</tr>
 								{/each}

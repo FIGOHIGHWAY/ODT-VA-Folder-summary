@@ -71,10 +71,16 @@ export async function findReportByContentHash(contentHash) {
 
 /**
  * Insert a parsed report and its findings inside one transaction.
- * @param {{ sourceTool: 'nessus'|'zap', originalFilename: string, findings: Array<object>, contentHash?: string|null }} input
+ * @param {{ sourceTool: 'nessus'|'zap'|'burp', originalFilename: string, findings: Array<object>, contentHash?: string|null, rawHtmlGz?: Buffer|null }} input
  * @returns {Promise<{ reportId: number, insertedCount: number, domain: string|null }>}
  */
-export async function insertReport({ sourceTool, originalFilename, findings, contentHash = null }) {
+export async function insertReport({
+	sourceTool,
+	originalFilename,
+	findings,
+	contentHash = null,
+	rawHtmlGz = null
+}) {
 	const domain = pickDomain(findings);
 	const scannedAt = extractScanDateFromFilename(originalFilename);
 	const client = await pool.connect();
@@ -82,8 +88,9 @@ export async function insertReport({ sourceTool, originalFilename, findings, con
 		await client.query('BEGIN');
 
 		const reportResult = await client.query(
-			`INSERT INTO reports (source_tool, original_filename, domain, content_hash, scanned_at) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-			[sourceTool, originalFilename, domain, contentHash, scannedAt]
+			`INSERT INTO reports (source_tool, original_filename, domain, content_hash, scanned_at, raw_html)
+			 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			[sourceTool, originalFilename, domain, contentHash, scannedAt, rawHtmlGz]
 		);
 		const reportId = reportResult.rows[0].id;
 
@@ -131,6 +138,7 @@ export async function insertReport({ sourceTool, originalFilename, findings, con
 export async function listReportsByDomain(limit = 200) {
 	const { rows } = await pool.query(
 		`SELECT r.id, r.source_tool, r.original_filename, r.imported_at, r.domain,
+		        r.raw_html IS NOT NULL AS has_original,
 		        COUNT(f.id)::int AS finding_count
 		 FROM reports r
 		 LEFT JOIN findings f ON f.report_id = r.id
@@ -502,6 +510,7 @@ export async function resolveShareToken(token) {
 export async function listReportsForDomain(domain) {
 	const { rows } = await pool.query(
 		`SELECT r.id, r.source_tool, r.original_filename, r.imported_at, r.scanned_at,
+		        r.raw_html IS NOT NULL AS has_original,
 		        COUNT(f.id)::int AS finding_count
 		 FROM reports r
 		 LEFT JOIN findings f ON f.report_id = r.id
@@ -756,4 +765,33 @@ export async function listFindingsForReport(reportId) {
 		[reportId]
 	);
 	return rows;
+}
+
+/**
+ * Whether a report still has its original uploaded file kept (only true
+ * for uploads from after this feature shipped) — cheap existence check
+ * that doesn't fetch the (potentially large) blob itself.
+ * @param {number} reportId
+ */
+export async function hasOriginalFile(reportId) {
+	const { rows } = await pool.query(
+		`SELECT raw_html IS NOT NULL AS has_it FROM reports WHERE id = $1`,
+		[reportId]
+	);
+	return rows[0]?.has_it ?? false;
+}
+
+/**
+ * Get the original uploaded file (still gzip-compressed) for a report, if
+ * we kept one — only uploads from after this feature shipped have it;
+ * older reports return null for raw_html.
+ * @param {number} reportId
+ * @returns {Promise<{ original_filename: string, raw_html: Buffer|null }|null>}
+ */
+export async function getReportRawHtml(reportId) {
+	const { rows } = await pool.query(
+		`SELECT original_filename, raw_html FROM reports WHERE id = $1`,
+		[reportId]
+	);
+	return rows[0] ?? null;
 }
