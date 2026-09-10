@@ -28,6 +28,9 @@
 		<div style="display:flex; gap:.5rem">
 			<a class="button" href="/api/export/report/{data.reportId}">⬇️ ดึงไฟล์ (PDF)</a>
 			{#if data.hasOriginal}
+				<a class="button" href="/api/reports/{data.reportId}/preview" target="_blank" rel="noopener">
+					👁️ ดูตัวอย่าง
+				</a>
 				<a class="button" href="/api/reports/{data.reportId}/original">⬇️ ไฟล์ต้นฉบับ</a>
 			{/if}
 		</div>

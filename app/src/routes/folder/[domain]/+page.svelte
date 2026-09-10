@@ -279,6 +279,15 @@
 											{#if r.has_original}
 												<a
 													class="button"
+													href="/api/reports/{r.id}/preview"
+													target="_blank"
+													rel="noopener"
+													title="ดูตัวอย่างไฟล์ต้นฉบับที่อัปโหลด"
+												>
+													👁️
+												</a>
+												<a
+													class="button"
 													href="/api/reports/{r.id}/original"
 													title="ดาวน์โหลดไฟล์ต้นฉบับที่อัปโหลด"
 												>
