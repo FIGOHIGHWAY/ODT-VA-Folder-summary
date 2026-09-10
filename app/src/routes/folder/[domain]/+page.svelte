@@ -274,26 +274,35 @@
 										<td class="mono">{r.finding_count}</td>
 										<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
 										<td>
-											<a class="button" href="/reports/{r.id}">ดู →</a>
-											<a class="button" href="/api/export/report/{r.id}" title="ดึงไฟล์ PDF">⬇️ PDF</a>
-											{#if r.has_original}
+											<div class="row-actions">
+												<a class="icon-action" href="/reports/{r.id}" title="ดูรายละเอียด">🔍</a>
 												<a
-													class="button"
-													href="/api/reports/{r.id}/preview"
-													target="_blank"
-													rel="noopener"
-													title="ดูตัวอย่างไฟล์ต้นฉบับที่อัปโหลด"
+													class="icon-action"
+													href="/api/export/report/{r.id}"
+													title="ดึงไฟล์ PDF"
 												>
-													👁️
+													📄
 												</a>
-												<a
-													class="button"
-													href="/api/reports/{r.id}/original"
-													title="ดาวน์โหลดไฟล์ต้นฉบับที่อัปโหลด"
-												>
-													⬇️ ต้นฉบับ
-												</a>
-											{/if}
+												{#if r.has_original}
+													<span class="action-sep"></span>
+													<a
+														class="icon-action"
+														href="/api/reports/{r.id}/preview"
+														target="_blank"
+														rel="noopener"
+														title="ดูตัวอย่างไฟล์ต้นฉบับ"
+													>
+														👁️
+													</a>
+													<a
+														class="icon-action"
+														href="/api/reports/{r.id}/original"
+														title="ดาวน์โหลดไฟล์ต้นฉบับ"
+													>
+														💾
+													</a>
+												{/if}
+											</div>
 										</td>
 									</tr>
 								{/each}
@@ -307,6 +316,37 @@
 </div>
 
 <style>
+	.row-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap;
+	}
+	.icon-action {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.8rem;
+		height: 1.8rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--panel);
+		text-decoration: none;
+		font-size: 0.85rem;
+		line-height: 1;
+		flex: 0 0 auto;
+	}
+	.icon-action:hover {
+		border-color: var(--accent);
+		background: var(--code-bg);
+	}
+	.action-sep {
+		width: 1px;
+		align-self: stretch;
+		background: var(--border);
+		margin: 0 0.15rem;
+	}
+
 	.head-row {
 		display: flex;
 		justify-content: space-between;

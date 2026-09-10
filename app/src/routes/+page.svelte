@@ -278,22 +278,31 @@
 								<td class="mono">{r.finding_count}</td>
 								<td class="mono">{new Date(r.imported_at).toLocaleString()}</td>
 								<td>
-									<a class="button" href="/reports/{r.id}">{t($lang, 'home_view')}</a>
-									<a class="button" href="/api/export/report/{r.id}" title="PDF">⬇️ PDF</a>
-									{#if r.has_original}
-										<a
-											class="button"
-											href="/api/reports/{r.id}/preview"
-											target="_blank"
-											rel="noopener"
-											title="Preview"
-										>
-											👁️
+									<div class="row-actions">
+										<a class="icon-action" href="/reports/{r.id}" title={t($lang, 'home_view')}>
+											🔍
 										</a>
-										<a class="button" href="/api/reports/{r.id}/original" title="Original file">
-											⬇️ Original
-										</a>
-									{/if}
+										<a class="icon-action" href="/api/export/report/{r.id}" title="PDF">📄</a>
+										{#if r.has_original}
+											<span class="action-sep"></span>
+											<a
+												class="icon-action"
+												href="/api/reports/{r.id}/preview"
+												target="_blank"
+												rel="noopener"
+												title="Preview"
+											>
+												👁️
+											</a>
+											<a
+												class="icon-action"
+												href="/api/reports/{r.id}/original"
+												title="Original file"
+											>
+												💾
+											</a>
+										{/if}
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -338,6 +347,37 @@
 </div>
 
 <style>
+	.row-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap;
+	}
+	.icon-action {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.8rem;
+		height: 1.8rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--panel);
+		text-decoration: none;
+		font-size: 0.85rem;
+		line-height: 1;
+		flex: 0 0 auto;
+	}
+	.icon-action:hover {
+		border-color: var(--accent);
+		background: var(--code-bg);
+	}
+	.action-sep {
+		width: 1px;
+		align-self: stretch;
+		background: var(--border);
+		margin: 0 0.15rem;
+	}
+
 	.drop {
 		border: 2px dashed var(--border);
 		border-radius: 10px;
