@@ -15,6 +15,10 @@ export function canUpload(role) {
 	return role === 'admin' || role === 'soc';
 }
 
+export function canDelete(role) {
+	return role === 'admin' || role === 'soc';
+}
+
 export function canGenerateReport(role) {
 	return role === 'admin' || role === 'soc';
 }

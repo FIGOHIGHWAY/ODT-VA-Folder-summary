@@ -129,6 +129,22 @@ export async function insertReport({
 }
 
 /**
+ * Delete a report and every finding filed under it (findings cascade via
+ * the report_id foreign key). Irreversible — also discards the stored
+ * original file, if one was kept.
+ * @param {number} reportId
+ * @returns {Promise<{ deleted: boolean, domain: string|null, originalFilename: string|null }>}
+ */
+export async function deleteReport(reportId) {
+	const { rows } = await pool.query(
+		`DELETE FROM reports WHERE id = $1 RETURNING domain, original_filename`,
+		[reportId]
+	);
+	if (rows.length === 0) return { deleted: false, domain: null, originalFilename: null };
+	return { deleted: true, domain: rows[0].domain, originalFilename: rows[0].original_filename };
+}
+
+/**
  * List the most recently imported reports with their finding counts,
  * grouped into folders by domain (null/unrecognized domain goes into an
  * "unknown" bucket). Folders are ordered by most recently active report.

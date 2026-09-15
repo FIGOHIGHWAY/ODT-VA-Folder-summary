@@ -1,4 +1,5 @@
 <script>
+	import { goto } from '$app/navigation';
 	import FindingDetail from '$lib/FindingDetail.svelte';
 
 	let { data } = $props();
@@ -11,6 +12,30 @@
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		expanded = next;
+	}
+
+	let deleteBusy = $state(false);
+
+	async function deleteThisReport() {
+		if (
+			!confirm(
+				`ลบ report #${data.reportId} ทิ้งถาวร? ข้อมูล finding และไฟล์ต้นฉบับ (ถ้ามี) จะหายไปเลย กู้คืนไม่ได้`
+			)
+		) {
+			return;
+		}
+		deleteBusy = true;
+		try {
+			const res = await fetch(`/api/reports/${data.reportId}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				alert(body.error ?? 'ลบไม่สำเร็จ');
+				return;
+			}
+			goto('/');
+		} finally {
+			deleteBusy = false;
+		}
 	}
 </script>
 
@@ -32,6 +57,11 @@
 					👁️ ดูตัวอย่าง
 				</a>
 				<a class="button" href="/api/reports/{data.reportId}/original">⬇️ ไฟล์ต้นฉบับ</a>
+			{/if}
+			{#if data.canDelete}
+				<button type="button" class="button button-danger" disabled={deleteBusy} onclick={deleteThisReport}>
+					🗑️ ลบ report นี้
+				</button>
 			{/if}
 		</div>
 	</div>

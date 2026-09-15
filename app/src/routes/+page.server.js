@@ -1,9 +1,9 @@
 import { listReportsByDomain } from '$lib/server/db.js';
-import { canUpload } from '$lib/server/permissions.js';
+import { canUpload, canDelete } from '$lib/server/permissions.js';
 
 export async function load({ locals }) {
 	const role = locals.user?.role ?? 'user';
-	const flags = { canUpload: canUpload(role) };
+	const flags = { canUpload: canUpload(role), canDelete: canDelete(role) };
 
 	try {
 		const domains = await listReportsByDomain();

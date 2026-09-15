@@ -5,7 +5,7 @@ import {
 	getAiSummary,
 	getUserAiKey
 } from '$lib/server/db.js';
-import { canGenerateReport } from '$lib/server/permissions.js';
+import { canGenerateReport, canDelete } from '$lib/server/permissions.js';
 
 export async function load({ params, locals }) {
 	const domain = params.domain;
@@ -31,6 +31,7 @@ export async function load({ params, locals }) {
 		shareLinks,
 		aiSummary,
 		hasOwnAiKey: Boolean(userAiKey),
-		canGenerateReport: canGenerateReport(locals.user?.role ?? 'user')
+		canGenerateReport: canGenerateReport(locals.user?.role ?? 'user'),
+		canDelete: canDelete(locals.user?.role ?? 'user')
 	};
 }

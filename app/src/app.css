@@ -142,6 +142,16 @@ button:disabled {
 	cursor: not-allowed;
 }
 
+.button-danger {
+	color: var(--err);
+	border-color: var(--err);
+}
+
+.button-danger:hover {
+	background: rgba(220, 38, 38, 0.08);
+	color: var(--err);
+}
+
 .status {
 	display: flex;
 	align-items: center;

@@ -1,8 +1,31 @@
 <script>
 	import { onMount } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
 	import { lang, initLang, t } from '$lib/i18n.js';
 
 	let { data } = $props();
+
+	let deleteBusy = $state(new Set());
+
+	async function deleteReport(reportId, filename) {
+		if (!confirm(`ลบ report "${filename}" ทิ้งถาวร? ข้อมูล finding และไฟล์ต้นฉบับ (ถ้ามี) จะหายไปเลย กู้คืนไม่ได้`)) {
+			return;
+		}
+		deleteBusy = new Set(deleteBusy).add(reportId);
+		try {
+			const res = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				alert(body.error ?? 'ลบไม่สำเร็จ');
+				return;
+			}
+			await invalidateAll();
+		} finally {
+			const next = new Set(deleteBusy);
+			next.delete(reportId);
+			deleteBusy = next;
+		}
+	}
 
 	let status = $state('idle'); // idle | loading | ok | error
 	let errorMessage = $state('');
@@ -302,6 +325,18 @@
 												💾
 											</a>
 										{/if}
+										{#if data.canDelete}
+											<span class="action-sep"></span>
+											<button
+												type="button"
+												class="icon-action icon-danger"
+												disabled={deleteBusy.has(r.id)}
+												onclick={() => deleteReport(r.id, r.original_filename)}
+												title="ลบ report นี้ทิ้งถาวร"
+											>
+												🗑️
+											</button>
+										{/if}
 									</div>
 								</td>
 							</tr>
@@ -370,6 +405,18 @@
 	.icon-action:hover {
 		border-color: var(--accent);
 		background: var(--code-bg);
+	}
+	.icon-action.icon-danger {
+		cursor: pointer;
+		font: inherit;
+	}
+	.icon-action.icon-danger:hover:not(:disabled) {
+		border-color: var(--err);
+		background: rgba(220, 38, 38, 0.08);
+	}
+	.icon-action.icon-danger:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 	.action-sep {
 		width: 1px;

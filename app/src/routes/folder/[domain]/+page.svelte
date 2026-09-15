@@ -1,5 +1,40 @@
 <script>
+	import { goto } from '$app/navigation';
+
 	let { data } = $props();
+
+	/** local mutable copy so a delete can remove a row instantly without a full reload */
+	let reports = $state(data.reports);
+	$effect(() => {
+		reports = data.reports;
+	});
+
+	let deleteBusy = $state(new Set());
+
+	async function deleteReport(reportId, filename) {
+		if (!confirm(`ลบ report "${filename}" ทิ้งถาวร? ข้อมูล finding และไฟล์ต้นฉบับ (ถ้ามี) จะหายไปเลย กู้คืนไม่ได้`)) {
+			return;
+		}
+		deleteBusy = new Set(deleteBusy).add(reportId);
+		try {
+			const res = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				alert(body.error ?? 'ลบไม่สำเร็จ');
+				return;
+			}
+			const remaining = reports.filter((r) => r.id !== reportId);
+			if (remaining.length === 0) {
+				goto('/');
+				return;
+			}
+			reports = remaining;
+		} finally {
+			const next = new Set(deleteBusy);
+			next.delete(reportId);
+			deleteBusy = next;
+		}
+	}
 
 	/**
 	 * Group reports by their effective scan date ("รอบสแกน") — scanned_at
@@ -12,7 +47,7 @@
 	const dateGroups = $derived.by(() => {
 		/** @type {Map<string, Array<object>>} */
 		const byDate = new Map();
-		for (const r of data.reports) {
+		for (const r of reports) {
 			const effective = r.scanned_at ?? r.imported_at;
 			const key = new Date(effective).toLocaleDateString('sv-SE'); // YYYY-MM-DD, locale-stable
 			if (!byDate.has(key)) byDate.set(key, []);
@@ -144,7 +179,7 @@
 	<div class="head-row">
 		<div>
 			<h1><span class="folder-icon">📁</span> {data.domain}</h1>
-			<p class="sub">{data.reports.length} report(s)</p>
+			<p class="sub">{reports.length} report(s)</p>
 		</div>
 		<div class="actions">
 			<a class="button" href="/api/export/domain/{data.domain}">⬇️ ดึงไฟล์ (รอบล่าสุด)</a>
@@ -302,6 +337,18 @@
 														💾
 													</a>
 												{/if}
+												{#if data.canDelete}
+													<span class="action-sep"></span>
+													<button
+														type="button"
+														class="icon-action icon-danger"
+														disabled={deleteBusy.has(r.id)}
+														onclick={() => deleteReport(r.id, r.original_filename)}
+														title="ลบ report นี้ทิ้งถาวร"
+													>
+														🗑️
+													</button>
+												{/if}
 											</div>
 										</td>
 									</tr>
@@ -339,6 +386,18 @@
 	.icon-action:hover {
 		border-color: var(--accent);
 		background: var(--code-bg);
+	}
+	.icon-action.icon-danger {
+		cursor: pointer;
+		font: inherit;
+	}
+	.icon-action.icon-danger:hover:not(:disabled) {
+		border-color: var(--err);
+		background: rgba(220, 38, 38, 0.08);
+	}
+	.icon-action.icon-danger:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 	.action-sep {
 		width: 1px;
