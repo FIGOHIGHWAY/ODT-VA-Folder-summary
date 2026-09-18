@@ -62,6 +62,7 @@
 				{#if data.user.role === 'admin'}
 					<a class="topbar-link" href="/users">{t($lang, 'nav_users')}</a>
 					<a class="topbar-link" href="/settings">{t($lang, 'nav_settings')}</a>
+					<a class="topbar-link" href="/links">{t($lang, 'nav_links')}</a>
 				{/if}
 				<a class="topbar-link" href="/logout">{t($lang, 'nav_logout')}</a>
 			{:else}

@@ -504,6 +504,31 @@ export async function revokeShareLinkForRound(domain, roundDate = null) {
 }
 
 /**
+ * List every active (non-revoked) share link across every domain — the
+ * central "manage all share links" view, so an admin doesn't have to open
+ * each domain folder individually to see what's currently shared.
+ * @returns {Promise<Array<{ token: string, domain: string, round_date: string|null, created_by: string|null, created_at: Date }>>}
+ */
+export async function listAllActiveShareLinks() {
+	const { rows } = await pool.query(
+		`SELECT token, domain, round_date, created_by, created_at FROM share_links
+		 WHERE revoked_at IS NULL
+		 ORDER BY created_at DESC`
+	);
+	return rows;
+}
+
+/**
+ * Revoke a single share link by its token directly — used by the central
+ * link-management page, where the exact token (not just domain+round) is
+ * already known.
+ * @param {string} token
+ */
+export async function revokeShareLinkByToken(token) {
+	await pool.query(`UPDATE share_links SET revoked_at = now() WHERE token = $1`, [token]);
+}
+
+/**
  * Resolve a share token to its domain and scoped round date, or null if the
  * token doesn't exist or has been revoked.
  * @param {string} token
