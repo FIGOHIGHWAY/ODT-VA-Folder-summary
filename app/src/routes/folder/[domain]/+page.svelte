@@ -184,6 +184,10 @@
 		<div class="actions">
 			<a class="button" href="/api/export/domain/{data.domain}">⬇️ ดึงไฟล์ (รอบล่าสุด)</a>
 
+			{#if data.user?.role === 'admin'}
+				<a class="button" href="/links">🔗 จัดการลิงก์ทั้งหมด</a>
+			{/if}
+
 			{#if data.canGenerateReport}
 				{#if data.hasOwnAiKey}
 					<button type="button" class="button" disabled={aiBusy} onclick={summarize}>
