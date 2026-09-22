@@ -44,6 +44,7 @@
 		initLang();
 		const stored = localStorage.getItem(VIEW_STORAGE_KEY);
 		if (stored === 'list' || stored === 'details') viewMode = stored;
+		return stopNessusPoll;
 	});
 
 	function setViewMode(mode) {
@@ -132,6 +133,73 @@
 		const file = e.dataTransfer.files?.[0];
 		if (file) submitFile(file);
 	}
+
+	let nessusTarget = $state('');
+	let nessusStatus = $state('idle'); // idle | starting | running | done | error
+	let nessusError = $state('');
+	let nessusResult = $state(null);
+	let nessusPollTimer = null;
+
+	function stopNessusPoll() {
+		if (nessusPollTimer) clearTimeout(nessusPollTimer);
+		nessusPollTimer = null;
+	}
+
+	async function pollNessusScan(scanId) {
+		try {
+			const res = await fetch(`/api/nessus/scan/${scanId}/status`);
+			const body = await res.json();
+			if (!res.ok) {
+				nessusStatus = 'error';
+				nessusError = body.error ?? 'ดึงผลสแกนไม่สำเร็จ';
+				return;
+			}
+			if (body.imported) {
+				nessusStatus = 'done';
+				nessusResult = body;
+				await invalidateAll();
+				return;
+			}
+			if (body.status === 'canceled' || body.status === 'aborted') {
+				nessusStatus = 'error';
+				nessusError = `สแกนถูกยกเลิก (${body.status})`;
+				return;
+			}
+			nessusStatus = 'running';
+			nessusPollTimer = setTimeout(() => pollNessusScan(scanId), 5000);
+		} catch (err) {
+			nessusStatus = 'error';
+			nessusError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function startNessusScan() {
+		const targets = nessusTarget.trim();
+		if (!targets) return;
+		stopNessusPoll();
+		nessusStatus = 'starting';
+		nessusError = '';
+		nessusResult = null;
+		try {
+			const res = await fetch('/api/nessus/scan', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ targets })
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				nessusStatus = 'error';
+				nessusError = body.error ?? 'สั่งสแกนไม่สำเร็จ';
+				return;
+			}
+			nessusStatus = 'running';
+			pollNessusScan(body.scanId);
+		} catch (err) {
+			nessusStatus = 'error';
+			nessusError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
 </script>
 
 <svelte:head>
@@ -241,6 +309,53 @@
 			{:else if status === 'error'}
 				<div class="status"><span class="badge err">{t($lang, 'home_parse_failed')}</span></div>
 				<div class="err-box">{errorMessage}</div>
+			{/if}
+		</div>
+
+		<div class="panel">
+			<h2>🛰️ สั่งสแกนด้วย Nessus</h2>
+			<p class="sub">
+				พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง Nessus เริ่มสแกน แล้วดึงผลกลับมา import
+				เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+			</p>
+			<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
+				<input
+					type="text"
+					bind:value={nessusTarget}
+					placeholder="เช่น 10.1.2.3 หรือ example.kku.ac.th"
+					disabled={nessusStatus === 'starting' || nessusStatus === 'running'}
+					style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				/>
+				<button
+					type="button"
+					class="button"
+					disabled={!nessusTarget.trim() || nessusStatus === 'starting' || nessusStatus === 'running'}
+					onclick={startNessusScan}
+				>
+					{nessusStatus === 'starting' || nessusStatus === 'running' ? '⏳ กำลังสแกน...' : '🛰️ เริ่มสแกน'}
+				</button>
+			</div>
+
+			{#if nessusStatus === 'running'}
+				<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			{:else if nessusStatus === 'error'}
+				<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
+				<div class="err-box">{nessusError}</div>
+			{:else if nessusStatus === 'done' && nessusResult}
+				{#if nessusResult.duplicate}
+					<div class="status">
+						<span class="badge">{t($lang, 'home_already_imported')}</span>
+						<a class="button" href="/reports/{nessusResult.existingReportId}">
+							{t($lang, 'home_view_original')}
+						</a>
+					</div>
+				{:else}
+					<div class="status">
+						<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
+						<span style="color:var(--muted)">{nessusResult.insertedCount} finding(s)</span>
+						<a class="button" href="/reports/{nessusResult.reportId}">{t($lang, 'home_view_detail')}</a>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{/if}
