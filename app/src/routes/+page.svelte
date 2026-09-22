@@ -134,6 +134,12 @@
 		if (file) submitFile(file);
 	}
 
+	// Disabled: the Nessus VM's current Professional license has "scan_api"
+	// turned off, so POST /scans is rejected with 412 "API is not available"
+	// even though the API key itself authenticates fine. Re-enable once
+	// Tenable confirms scan-via-API is licensed on that activation.
+	const NESSUS_SCAN_ENABLED = false;
+
 	let nessusTarget = $state('');
 	let nessusStatus = $state('idle'); // idle | starting | running | done | error
 	let nessusError = $state('');
@@ -312,6 +318,7 @@
 			{/if}
 		</div>
 
+		{#if NESSUS_SCAN_ENABLED}
 		<div class="panel">
 			<h2>🛰️ สั่งสแกนด้วย Nessus</h2>
 			<p class="sub">
@@ -358,6 +365,7 @@
 				{/if}
 			{/if}
 		</div>
+	{/if}
 	{/if}
 
 	<div class="panel">
