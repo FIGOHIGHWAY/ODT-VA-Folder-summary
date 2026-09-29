@@ -59,6 +59,9 @@
 					<span class="topbar-role">({data.user.role})</span>
 				</span>
 				<a class="topbar-link" href="/ai-key">{t($lang, 'nav_ai_key')}</a>
+				{#if data.user.role === 'admin' || data.user.role === 'soc'}
+					<a class="topbar-link" href="/scan">{t($lang, 'nav_scan')}</a>
+				{/if}
 				{#if data.user.role === 'admin'}
 					<a class="topbar-link" href="/users">{t($lang, 'nav_users')}</a>
 					<a class="topbar-link" href="/settings">{t($lang, 'nav_settings')}</a>
