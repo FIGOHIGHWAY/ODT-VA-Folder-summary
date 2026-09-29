@@ -4,10 +4,11 @@
 	import nessusLogo from '$lib/assets/tools/nessus-logo.png';
 	import openvasLogo from '$lib/assets/tools/openvas-logo.svg';
 	import nucleiLogo from '$lib/assets/tools/nuclei-logo.png';
+	import zapLogo from '$lib/assets/tools/zap-logo.svg';
 
 	let { data } = $props();
 
-	const TOOL_LABEL = { nessus: 'Nessus', openvas: 'OpenVAS', nuclei: 'Nuclei' };
+	const TOOL_LABEL = { nessus: 'Nessus', openvas: 'OpenVAS', nuclei: 'Nuclei', zap: 'ZAP' };
 	const STATUS_LABEL = { running: '⏳ กำลังสแกน', done: '✅ สำเร็จ', error: '❌ ล้มเหลว' };
 
 	let openvasTarget = $state('');
@@ -73,6 +74,80 @@
 		} catch (err) {
 			openvasStatus = 'error';
 			openvasError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	let zapTarget = $state('');
+	let zapStatus = $state('idle'); // idle | starting | running | done | error
+	let zapPhase = $state('');
+	let zapError = $state('');
+	let zapResult = $state(null);
+	let zapPollTimer = null;
+
+	function stopZapPoll() {
+		if (zapPollTimer) clearTimeout(zapPollTimer);
+		zapPollTimer = null;
+	}
+
+	const ZAP_PHASE_LABEL = {
+		spider: 'กำลัง crawl หน้าเว็บ (spider)',
+		'active-scan': 'กำลังสแกนหาช่องโหว่ (active scan)',
+		'fetching-alerts': 'กำลังดึงผลลัพธ์'
+	};
+
+	async function pollZapScan(jobId) {
+		try {
+			const res = await fetch(`/api/zap/scan/${jobId}/status`);
+			const body = await res.json();
+			if (!res.ok) {
+				zapStatus = 'error';
+				zapError = body.error ?? 'ดึงผลสแกนไม่สำเร็จ';
+				return;
+			}
+			if (body.imported) {
+				zapStatus = 'done';
+				zapResult = body;
+				await invalidateAll();
+				return;
+			}
+			if (body.status === 'error') {
+				zapStatus = 'error';
+				zapError = body.error ?? 'สแกนล้มเหลว';
+				return;
+			}
+			zapStatus = 'running';
+			zapPhase = body.phase ?? '';
+			zapPollTimer = setTimeout(() => pollZapScan(jobId), 5000);
+		} catch (err) {
+			zapStatus = 'error';
+			zapError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function startZapScan() {
+		const targets = zapTarget.trim();
+		if (!targets) return;
+		stopZapPoll();
+		zapStatus = 'starting';
+		zapError = '';
+		zapResult = null;
+		try {
+			const res = await fetch('/api/zap/scan', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ targets })
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				zapStatus = 'error';
+				zapError = body.error ?? 'สั่งสแกนไม่สำเร็จ';
+				return;
+			}
+			zapStatus = 'running';
+			pollZapScan(body.jobId);
+		} catch (err) {
+			zapStatus = 'error';
+			zapError = err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -320,6 +395,56 @@
 					<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
 					<span style="color:var(--muted)">{openvasResult.insertedCount} finding(s)</span>
 					<a class="button" href="/reports/{openvasResult.reportId}">{t($lang, 'home_view_detail')}</a>
+				</div>
+			{/if}
+		{/if}
+	</div>
+
+	<div class="panel">
+		<h2><img src={zapLogo} alt="ZAP" class="tool-logo" /> สั่งสแกนด้วย OWASP ZAP</h2>
+		<p class="sub">
+			ใส่ URL เต็มรูปแบบของเว็บเป้าหมาย (เช่น https://example.kku.ac.th) ระบบจะสั่ง ZAP crawl
+			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ต่อเนื่อง แล้วดึงผลกลับมา import
+			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+		</p>
+		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
+			<input
+				type="text"
+				bind:value={zapTarget}
+				placeholder="เช่น https://example.kku.ac.th"
+				disabled={zapStatus === 'starting' || zapStatus === 'running'}
+				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+			/>
+			<button
+				type="button"
+				class="button"
+				disabled={!zapTarget.trim() || zapStatus === 'starting' || zapStatus === 'running'}
+				onclick={startZapScan}
+			>
+				{zapStatus === 'starting' || zapStatus === 'running' ? '⏳ กำลังสแกน...' : '⚡ เริ่มสแกน'}
+			</button>
+		</div>
+
+		{#if zapStatus === 'running'}
+			<div class="status">
+				<span class="badge">{ZAP_PHASE_LABEL[zapPhase] ?? 'กำลังสแกน...'}</span>
+			</div>
+		{:else if zapStatus === 'error'}
+			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
+			<div class="err-box">{zapError}</div>
+		{:else if zapStatus === 'done' && zapResult}
+			{#if zapResult.duplicate}
+				<div class="status">
+					<span class="badge">{t($lang, 'home_already_imported')}</span>
+					<a class="button" href="/reports/{zapResult.existingReportId}">
+						{t($lang, 'home_view_original')}
+					</a>
+				</div>
+			{:else}
+				<div class="status">
+					<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
+					<span style="color:var(--muted)">{zapResult.insertedCount} finding(s)</span>
+					<a class="button" href="/reports/{zapResult.reportId}">{t($lang, 'home_view_detail')}</a>
 				</div>
 			{/if}
 		{/if}

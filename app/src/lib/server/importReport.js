@@ -3,6 +3,7 @@ import { gzipSync } from 'node:zlib';
 import { parseReport } from './parsers/index.js';
 import { parseOpenvasXml } from './parsers/openvas.js';
 import { parseNucleiJsonl } from './parsers/nuclei.js';
+import { parseZapAlerts } from './parsers/zapAlerts.js';
 import { insertReport, findReportByContentHash } from './db.js';
 
 function hashContent(html) {
@@ -103,4 +104,37 @@ export async function parseAndInsertNuclei(filename, jsonl) {
 		rawHtmlGz
 	});
 	return { filename, reportId, type: 'nuclei', insertedCount, findings };
+}
+
+/**
+ * Parse the alerts array from a live ZAP scan and insert it, skipping if an
+ * identical report (by content hash) was already imported.
+ * @param {string} filename
+ * @param {Array<object>} alerts
+ */
+export async function parseAndInsertZap(filename, alerts) {
+	const json = JSON.stringify(alerts);
+	const contentHash = hashContent(json);
+
+	const existing = await findReportByContentHash(contentHash);
+	if (existing) {
+		return {
+			filename,
+			duplicate: true,
+			existingReportId: existing.id,
+			existingFilename: existing.original_filename,
+			existingImportedAt: existing.imported_at
+		};
+	}
+
+	const findings = parseZapAlerts(alerts, filename);
+	const rawHtmlGz = gzipSync(Buffer.from(json, 'utf-8'));
+	const { reportId, insertedCount } = await insertReport({
+		sourceTool: 'zap',
+		originalFilename: filename,
+		findings,
+		contentHash,
+		rawHtmlGz
+	});
+	return { filename, reportId, type: 'zap', insertedCount, findings };
 }
