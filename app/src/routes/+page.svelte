@@ -47,6 +47,7 @@
 		return () => {
 			stopNessusPoll();
 			stopOpenvasPoll();
+			stopNucleiPoll();
 		};
 	});
 
@@ -200,6 +201,72 @@
 		} catch (err) {
 			openvasStatus = 'error';
 			openvasError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	let nucleiTarget = $state('');
+	let nucleiStatus = $state('idle'); // idle | starting | running | done | error
+	let nucleiError = $state('');
+	let nucleiResult = $state(null);
+	let nucleiPollTimer = null;
+
+	function stopNucleiPoll() {
+		if (nucleiPollTimer) clearTimeout(nucleiPollTimer);
+		nucleiPollTimer = null;
+	}
+
+	async function pollNucleiScan(jobId) {
+		try {
+			const res = await fetch(`/api/nuclei/scan/${jobId}/status`);
+			const body = await res.json();
+			if (!res.ok) {
+				nucleiStatus = 'error';
+				nucleiError = body.error ?? 'ดึงผลสแกนไม่สำเร็จ';
+				return;
+			}
+			if (body.imported) {
+				nucleiStatus = 'done';
+				nucleiResult = body;
+				await invalidateAll();
+				return;
+			}
+			if (body.status === 'error') {
+				nucleiStatus = 'error';
+				nucleiError = body.error ?? 'สแกนล้มเหลว';
+				return;
+			}
+			nucleiStatus = 'running';
+			nucleiPollTimer = setTimeout(() => pollNucleiScan(jobId), 5000);
+		} catch (err) {
+			nucleiStatus = 'error';
+			nucleiError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function startNucleiScan() {
+		const targets = nucleiTarget.trim();
+		if (!targets) return;
+		stopNucleiPoll();
+		nucleiStatus = 'starting';
+		nucleiError = '';
+		nucleiResult = null;
+		try {
+			const res = await fetch('/api/nuclei/scan', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ targets })
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				nucleiStatus = 'error';
+				nucleiError = body.error ?? 'สั่งสแกนไม่สำเร็จ';
+				return;
+			}
+			nucleiStatus = 'running';
+			pollNucleiScan(body.jobId);
+		} catch (err) {
+			nucleiStatus = 'error';
+			nucleiError = err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -482,6 +549,57 @@
 						<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
 						<span style="color:var(--muted)">{openvasResult.insertedCount} finding(s)</span>
 						<a class="button" href="/reports/{openvasResult.reportId}">{t($lang, 'home_view_detail')}</a>
+					</div>
+				{/if}
+			{/if}
+		</div>
+
+		<div class="panel">
+			<h2>🎯 สั่งสแกนด้วย Nuclei</h2>
+			<p class="sub">
+				พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง Nuclei เริ่มสแกน แล้วดึงผลกลับมา import
+				เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+			</p>
+			<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
+				<input
+					type="text"
+					bind:value={nucleiTarget}
+					placeholder="เช่น 10.1.2.3 หรือ https://example.kku.ac.th"
+					disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
+					style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				/>
+				<button
+					type="button"
+					class="button"
+					disabled={!nucleiTarget.trim() ||
+						nucleiStatus === 'starting' ||
+						nucleiStatus === 'running'}
+					onclick={startNucleiScan}
+				>
+					{nucleiStatus === 'starting' || nucleiStatus === 'running'
+						? '⏳ กำลังสแกน...'
+						: '🎯 เริ่มสแกน'}
+				</button>
+			</div>
+
+			{#if nucleiStatus === 'running'}
+				<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			{:else if nucleiStatus === 'error'}
+				<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
+				<div class="err-box">{nucleiError}</div>
+			{:else if nucleiStatus === 'done' && nucleiResult}
+				{#if nucleiResult.duplicate}
+					<div class="status">
+						<span class="badge">{t($lang, 'home_already_imported')}</span>
+						<a class="button" href="/reports/{nucleiResult.existingReportId}">
+							{t($lang, 'home_view_original')}
+						</a>
+					</div>
+				{:else}
+					<div class="status">
+						<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
+						<span style="color:var(--muted)">{nucleiResult.insertedCount} finding(s)</span>
+						<a class="button" href="/reports/{nucleiResult.reportId}">{t($lang, 'home_view_detail')}</a>
 					</div>
 				{/if}
 			{/if}

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { parseReport } from './parsers/index.js';
 import { parseOpenvasXml } from './parsers/openvas.js';
+import { parseNucleiJsonl } from './parsers/nuclei.js';
 import { insertReport, findReportByContentHash } from './db.js';
 
 function hashContent(html) {
@@ -70,4 +71,36 @@ export async function parseAndInsertOpenvas(filename, xml) {
 		rawHtmlGz
 	});
 	return { filename, reportId, type: 'openvas', insertedCount, findings };
+}
+
+/**
+ * Parse Nuclei's `-jsonl` scan output and insert it, skipping if an
+ * identical report (by content hash) was already imported.
+ * @param {string} filename
+ * @param {string} jsonl
+ */
+export async function parseAndInsertNuclei(filename, jsonl) {
+	const contentHash = hashContent(jsonl);
+
+	const existing = await findReportByContentHash(contentHash);
+	if (existing) {
+		return {
+			filename,
+			duplicate: true,
+			existingReportId: existing.id,
+			existingFilename: existing.original_filename,
+			existingImportedAt: existing.imported_at
+		};
+	}
+
+	const findings = parseNucleiJsonl(jsonl, filename);
+	const rawHtmlGz = gzipSync(Buffer.from(jsonl, 'utf-8'));
+	const { reportId, insertedCount } = await insertReport({
+		sourceTool: 'nuclei',
+		originalFilename: filename,
+		findings,
+		contentHash,
+		rawHtmlGz
+	});
+	return { filename, reportId, type: 'nuclei', insertedCount, findings };
 }

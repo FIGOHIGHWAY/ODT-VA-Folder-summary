@@ -31,6 +31,10 @@ services:
       # Lets the app reach the host's OpenVAS SSH tunnel (see
       # openvas-tunnel.service) at host.docker.internal:19390.
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Dedicated key for SSH-ing into the Nuclei VM to run scans remotely
+      # (see lib/server/nuclei.js) — Nuclei has no HTTP API of its own.
+      - ./nuclei-keys:/keys/nuclei:ro
     depends_on:
       db:
         condition: service_healthy
