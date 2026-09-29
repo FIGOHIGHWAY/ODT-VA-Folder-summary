@@ -72,6 +72,7 @@
 	}
 
 	let nucleiTarget = $state('');
+	let nucleiCveId = $state('');
 	let nucleiStatus = $state('idle'); // idle | starting | running | done | error
 	let nucleiError = $state('');
 	let nucleiResult = $state(null);
@@ -121,7 +122,7 @@
 			const res = await fetch('/api/nuclei/scan', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ targets })
+				body: JSON.stringify({ targets, cveId: nucleiCveId.trim() || undefined })
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -323,7 +324,8 @@
 		<h2><img src={nucleiLogo} alt="Nuclei" class="tool-logo" /> สั่งสแกนด้วย Nuclei</h2>
 		<p class="sub">
 			พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง Nuclei เริ่มสแกน แล้วดึงผลกลับมา import
-			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ ใส่ CVE ID (เช่น CVE-2021-44228) ถ้าต้องการสแกนหาช่องโหว่เจาะจง
+			ตัวเดียว — เว้นว่างไว้เพื่อสแกนด้วยชุด template เต็มรูปแบบ
 		</p>
 		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
 			<input
@@ -332,6 +334,13 @@
 				placeholder="เช่น 10.1.2.3 หรือ https://example.kku.ac.th"
 				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
 				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+			/>
+			<input
+				type="text"
+				bind:value={nucleiCveId}
+				placeholder="CVE ID (ไม่บังคับ) เช่น CVE-2021-44228"
+				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
+				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
 			<button
 				type="button"

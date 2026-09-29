@@ -7,14 +7,15 @@ export async function POST({ request, locals }) {
 		return json({ error: 'ไม่มีสิทธิ์สั่งสแกน' }, { status: 403 });
 	}
 
-	const { targets } = await request.json();
+	const { targets, cveId } = await request.json();
 	const trimmed = String(targets ?? '').trim();
 	if (!trimmed) {
 		return json({ error: 'ต้องระบุ target (IP หรือโดเมน)' }, { status: 400 });
 	}
+	const trimmedCve = String(cveId ?? '').trim() || null;
 
 	try {
-		const jobId = startScan(trimmed);
+		const jobId = startScan(trimmed, trimmedCve);
 		return json({ jobId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

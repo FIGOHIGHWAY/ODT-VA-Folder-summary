@@ -15,19 +15,29 @@ function config() {
 	return { host, user, keyPath };
 }
 
+const CVE_ID_PATTERN = /^CVE-\d{4}-\d{4,}$/i;
+
 /**
  * Launch a Nuclei scan against a target by running the CLI over SSH on its
  * VM (Nuclei has no HTTP API of its own) and streaming JSONL results back.
  * Runs in the background; poll with getScanStatus(jobId).
  * @param {string} target
+ * @param {string|null} [cveId] when given, only the template matching this
+ *   CVE is run (nuclei-templates names CVE templates after the CVE itself)
+ *   instead of the full default template set.
  * @returns {string} jobId
  */
-export function startScan(target) {
+export function startScan(target, cveId = null) {
 	const { host, user, keyPath } = config();
+	if (cveId && !CVE_ID_PATTERN.test(cveId)) {
+		throw new Error(`รูปแบบ CVE ID ไม่ถูกต้อง: "${cveId}" (ต้องเป็นรูปแบบ CVE-YYYY-NNNN)`);
+	}
 	const jobId = randomUUID();
 	jobs.set(jobId, { status: 'running', output: '', error: '' });
 
-	const remoteCmd = `nuclei -u ${shellQuote(target)} -jsonl -silent`;
+	const remoteCmd = cveId
+		? `nuclei -u ${shellQuote(target)} -id ${shellQuote(cveId.toUpperCase())} -jsonl -silent`
+		: `nuclei -u ${shellQuote(target)} -jsonl -silent`;
 	const ssh = spawn(
 		'ssh',
 		[
