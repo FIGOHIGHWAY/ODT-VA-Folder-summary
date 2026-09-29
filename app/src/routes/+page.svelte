@@ -44,7 +44,10 @@
 		initLang();
 		const stored = localStorage.getItem(VIEW_STORAGE_KEY);
 		if (stored === 'list' || stored === 'details') viewMode = stored;
-		return stopNessusPoll;
+		return () => {
+			stopNessusPoll();
+			stopOpenvasPoll();
+		};
 	});
 
 	function setViewMode(mode) {
@@ -132,6 +135,72 @@
 		dragging = false;
 		const file = e.dataTransfer.files?.[0];
 		if (file) submitFile(file);
+	}
+
+	let openvasTarget = $state('');
+	let openvasStatus = $state('idle'); // idle | starting | running | done | error
+	let openvasError = $state('');
+	let openvasResult = $state(null);
+	let openvasPollTimer = null;
+
+	function stopOpenvasPoll() {
+		if (openvasPollTimer) clearTimeout(openvasPollTimer);
+		openvasPollTimer = null;
+	}
+
+	async function pollOpenvasScan(taskId) {
+		try {
+			const res = await fetch(`/api/openvas/scan/${taskId}/status`);
+			const body = await res.json();
+			if (!res.ok) {
+				openvasStatus = 'error';
+				openvasError = body.error ?? 'ดึงผลสแกนไม่สำเร็จ';
+				return;
+			}
+			if (body.imported) {
+				openvasStatus = 'done';
+				openvasResult = body;
+				await invalidateAll();
+				return;
+			}
+			if (body.status === 'Stopped' || body.status === 'Interrupted') {
+				openvasStatus = 'error';
+				openvasError = `สแกนถูกยกเลิก (${body.status})`;
+				return;
+			}
+			openvasStatus = 'running';
+			openvasPollTimer = setTimeout(() => pollOpenvasScan(taskId), 5000);
+		} catch (err) {
+			openvasStatus = 'error';
+			openvasError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function startOpenvasScan() {
+		const targets = openvasTarget.trim();
+		if (!targets) return;
+		stopOpenvasPoll();
+		openvasStatus = 'starting';
+		openvasError = '';
+		openvasResult = null;
+		try {
+			const res = await fetch('/api/openvas/scan', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ targets })
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				openvasStatus = 'error';
+				openvasError = body.error ?? 'สั่งสแกนไม่สำเร็จ';
+				return;
+			}
+			openvasStatus = 'running';
+			pollOpenvasScan(body.taskId);
+		} catch (err) {
+			openvasStatus = 'error';
+			openvasError = err instanceof Error ? err.message : String(err);
+		}
 	}
 
 	// Disabled: the Nessus VM's current Professional license has "scan_api"
@@ -366,6 +435,57 @@
 			{/if}
 		</div>
 	{/if}
+
+		<div class="panel">
+			<h2>🛡️ สั่งสแกนด้วย OpenVAS</h2>
+			<p class="sub">
+				พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง OpenVAS เริ่มสแกน แล้วดึงผลกลับมา import
+				เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+			</p>
+			<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
+				<input
+					type="text"
+					bind:value={openvasTarget}
+					placeholder="เช่น 10.1.2.3 หรือ example.kku.ac.th"
+					disabled={openvasStatus === 'starting' || openvasStatus === 'running'}
+					style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				/>
+				<button
+					type="button"
+					class="button"
+					disabled={!openvasTarget.trim() ||
+						openvasStatus === 'starting' ||
+						openvasStatus === 'running'}
+					onclick={startOpenvasScan}
+				>
+					{openvasStatus === 'starting' || openvasStatus === 'running'
+						? '⏳ กำลังสแกน...'
+						: '🛡️ เริ่มสแกน'}
+				</button>
+			</div>
+
+			{#if openvasStatus === 'running'}
+				<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			{:else if openvasStatus === 'error'}
+				<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
+				<div class="err-box">{openvasError}</div>
+			{:else if openvasStatus === 'done' && openvasResult}
+				{#if openvasResult.duplicate}
+					<div class="status">
+						<span class="badge">{t($lang, 'home_already_imported')}</span>
+						<a class="button" href="/reports/{openvasResult.existingReportId}">
+							{t($lang, 'home_view_original')}
+						</a>
+					</div>
+				{:else}
+					<div class="status">
+						<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
+						<span style="color:var(--muted)">{openvasResult.insertedCount} finding(s)</span>
+						<a class="button" href="/reports/{openvasResult.reportId}">{t($lang, 'home_view_detail')}</a>
+					</div>
+				{/if}
+			{/if}
+		</div>
 	{/if}
 
 	<div class="panel">

@@ -27,6 +27,10 @@ services:
       # SvelteKit's own request-body cap (separate from nginx's
       # client_max_body_size) — defaults to 512kb, must be raised to match.
       BODY_SIZE_LIMIT: 100M
+    extra_hosts:
+      # Lets the app reach the host's OpenVAS SSH tunnel (see
+      # openvas-tunnel.service) at host.docker.internal:19390.
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
