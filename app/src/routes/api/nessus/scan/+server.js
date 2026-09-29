@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { createAndLaunchScan } from '$lib/server/nessus.js';
+import { insertScanJob } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -15,6 +16,12 @@ export async function POST({ request, locals }) {
 
 	try {
 		const { scanId } = await createAndLaunchScan(`VA Scan - ${trimmed} - ${new Date().toISOString()}`, trimmed);
+		await insertScanJob({
+			tool: 'nessus',
+			target: trimmed,
+			externalId: String(scanId),
+			createdBy: locals.user?.email ?? locals.user?.name ?? null
+		});
 		return json({ scanId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

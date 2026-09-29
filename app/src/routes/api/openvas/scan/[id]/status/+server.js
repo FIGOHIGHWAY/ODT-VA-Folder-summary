@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getScanStatus, getReportXml } from '$lib/server/openvas.js';
 import { parseAndInsertOpenvas } from '$lib/server/importReport.js';
+import { updateScanJobByExternalId } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 // GMP task status values: Requested, Queued, Running, Done, Stopped, Interrupted
@@ -18,6 +19,10 @@ export async function GET({ params, locals }) {
 		const { status, reportId } = await getScanStatus(taskId);
 
 		if (FAILED.has(status)) {
+			await updateScanJobByExternalId('openvas', taskId, {
+				status: 'error',
+				errorMessage: `สแกนถูกยกเลิก (${status})`
+			});
 			return json({ status, imported: false });
 		}
 		if (!DONE.has(status) || !reportId) {
@@ -26,9 +31,14 @@ export async function GET({ params, locals }) {
 
 		const xml = await getReportXml(reportId);
 		const result = await parseAndInsertOpenvas(`openvas-scan-${taskId}.xml`, xml);
+		await updateScanJobByExternalId('openvas', taskId, {
+			status: 'done',
+			reportId: result.reportId ?? result.existingReportId ?? null
+		});
 		return json({ status, imported: true, ...result });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		await updateScanJobByExternalId('openvas', taskId, { status: 'error', errorMessage: message });
 		return json({ error: message }, { status: 502 });
 	}
 }

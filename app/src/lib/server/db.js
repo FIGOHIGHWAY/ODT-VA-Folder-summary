@@ -836,3 +836,51 @@ export async function getReportRawHtml(reportId) {
 	);
 	return rows[0] ?? null;
 }
+
+/**
+ * Record a newly launched scan job (Nessus scan id / OpenVAS task id / Nuclei
+ * job id) so its status survives page reloads and shows up in the scan
+ * history list.
+ * @param {{ tool: 'nessus'|'openvas'|'nuclei', target: string, externalId: string, extra?: string|null, createdBy?: string|null }} params
+ * @returns {Promise<number>} the new scan_jobs row id
+ */
+export async function insertScanJob({ tool, target, externalId, extra = null, createdBy = null }) {
+	const { rows } = await pool.query(
+		`INSERT INTO scan_jobs (tool, target, external_id, extra, created_by)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		[tool, target, externalId, extra, createdBy]
+	);
+	return rows[0].id;
+}
+
+/**
+ * Mark the scan job matching (tool, externalId) as finished, either
+ * successfully (with the resulting report id) or with an error.
+ * @param {'nessus'|'openvas'|'nuclei'} tool
+ * @param {string} externalId
+ * @param {{ status: 'done'|'error', reportId?: number|null, errorMessage?: string|null }} update
+ */
+export async function updateScanJobByExternalId(tool, externalId, { status, reportId = null, errorMessage = null }) {
+	await pool.query(
+		`UPDATE scan_jobs SET status = $1, report_id = $2, error_message = $3, updated_at = now()
+		 WHERE tool = $4 AND external_id = $5`,
+		[status, reportId, errorMessage, tool, externalId]
+	);
+}
+
+/**
+ * List the most recent scan jobs across all tools, for the scan history view.
+ * @param {number} limit
+ */
+export async function listRecentScanJobs(limit = 30) {
+	const { rows } = await pool.query(
+		`SELECT sj.id, sj.tool, sj.target, sj.extra, sj.status, sj.report_id, sj.error_message,
+		        sj.created_by, sj.created_at, r.original_filename
+		 FROM scan_jobs sj
+		 LEFT JOIN reports r ON r.id = sj.report_id
+		 ORDER BY sj.created_at DESC
+		 LIMIT $1`,
+		[limit]
+	);
+	return rows;
+}

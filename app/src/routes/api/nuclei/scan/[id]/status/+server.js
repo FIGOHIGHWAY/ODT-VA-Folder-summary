@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getScanStatus } from '$lib/server/nuclei.js';
 import { parseAndInsertNuclei } from '$lib/server/importReport.js';
+import { updateScanJobByExternalId } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function GET({ params, locals }) {
@@ -18,14 +19,20 @@ export async function GET({ params, locals }) {
 		return json({ status: 'running', imported: false });
 	}
 	if (job.status === 'error') {
+		await updateScanJobByExternalId('nuclei', jobId, { status: 'error', errorMessage: job.error });
 		return json({ status: 'error', imported: false, error: job.error });
 	}
 
 	try {
 		const result = await parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, job.output);
+		await updateScanJobByExternalId('nuclei', jobId, {
+			status: 'done',
+			reportId: result.reportId ?? result.existingReportId ?? null
+		});
 		return json({ status: 'done', imported: true, ...result });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		await updateScanJobByExternalId('nuclei', jobId, { status: 'error', errorMessage: message });
 		return json({ error: message }, { status: 502 });
 	}
 }

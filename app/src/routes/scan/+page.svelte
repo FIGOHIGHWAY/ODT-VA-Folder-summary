@@ -5,6 +5,11 @@
 	import openvasLogo from '$lib/assets/tools/openvas-logo.svg';
 	import nucleiLogo from '$lib/assets/tools/nuclei-logo.png';
 
+	let { data } = $props();
+
+	const TOOL_LABEL = { nessus: 'Nessus', openvas: 'OpenVAS', nuclei: 'Nuclei' };
+	const STATUS_LABEL = { running: '⏳ กำลังสแกน', done: '✅ สำเร็จ', error: '❌ ล้มเหลว' };
+
 	let openvasTarget = $state('');
 	let openvasStatus = $state('idle'); // idle | starting | running | done | error
 	let openvasError = $state('');
@@ -378,6 +383,52 @@
 			{/if}
 		{/if}
 	</div>
+
+	<div class="panel">
+		<div class="panel-head">
+			<h2>📋 สถานะสแกน</h2>
+			<button type="button" class="button" onclick={() => invalidateAll()}>🔄 รีเฟรช</button>
+		</div>
+		{#if data.jobs.length === 0}
+			<p class="sub">ยังไม่มีประวัติการสั่งสแกน</p>
+		{:else}
+			<table class="jobs-table">
+				<thead>
+					<tr>
+						<th>เครื่องมือ</th>
+						<th>Target</th>
+						<th>สถานะ</th>
+						<th>สั่งโดย</th>
+						<th>เมื่อ</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each data.jobs as job (job.id)}
+						<tr>
+							<td>{TOOL_LABEL[job.tool] ?? job.tool}{job.extra ? ` (${job.extra})` : ''}</td>
+							<td class="mono">{job.target}</td>
+							<td>
+								<span class="badge" class:ok={job.status === 'done'} class:err={job.status === 'error'}>
+									{STATUS_LABEL[job.status] ?? job.status}
+								</span>
+								{#if job.status === 'error' && job.error_message}
+									<div class="job-error">{job.error_message}</div>
+								{/if}
+							</td>
+							<td>{job.created_by ?? '—'}</td>
+							<td class="mono">{new Date(job.created_at).toLocaleString('th-TH')}</td>
+							<td>
+								{#if job.report_id}
+									<a class="button" href="/reports/{job.report_id}">ดูผล</a>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -418,6 +469,35 @@
 		gap: 0.6rem;
 		font-size: 1.05rem;
 		margin-bottom: 0.5rem;
+	}
+	.panel-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+	.panel-head h2 {
+		margin-bottom: 0;
+	}
+	.jobs-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.85rem;
+	}
+	.jobs-table th,
+	.jobs-table td {
+		text-align: left;
+		padding: 0.5rem 0.6rem;
+		border-bottom: 1px solid var(--border);
+		vertical-align: top;
+	}
+	.mono {
+		font-family: var(--mono, monospace);
+	}
+	.job-error {
+		margin-top: 0.25rem;
+		color: #f19a9a;
+		font-size: 0.78rem;
 	}
 	.tool-logo {
 		height: 24px;

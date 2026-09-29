@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { createAndLaunchScan } from '$lib/server/openvas.js';
+import { insertScanJob } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -18,6 +19,12 @@ export async function POST({ request, locals }) {
 			`VA Scan - ${trimmed} - ${new Date().toISOString()}`,
 			trimmed
 		);
+		await insertScanJob({
+			tool: 'openvas',
+			target: trimmed,
+			externalId: taskId,
+			createdBy: locals.user?.email ?? locals.user?.name ?? null
+		});
 		return json({ taskId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

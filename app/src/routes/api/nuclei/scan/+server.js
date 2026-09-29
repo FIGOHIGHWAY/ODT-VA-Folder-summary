@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { startScan } from '$lib/server/nuclei.js';
+import { insertScanJob } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -16,6 +17,13 @@ export async function POST({ request, locals }) {
 
 	try {
 		const jobId = startScan(trimmed, trimmedCve);
+		await insertScanJob({
+			tool: 'nuclei',
+			target: trimmed,
+			externalId: jobId,
+			extra: trimmedCve,
+			createdBy: locals.user?.email ?? locals.user?.name ?? null
+		});
 		return json({ jobId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getScanStatus, exportScanHtml } from '$lib/server/nessus.js';
 import { parseAndInsert } from '$lib/server/importReport.js';
+import { updateScanJobByExternalId } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 // Nessus scan status values: pending, running, completed, canceled, aborted, imported
@@ -21,6 +22,10 @@ export async function GET({ params, locals }) {
 		const { status } = await getScanStatus(scanId);
 
 		if (FAILED.has(status)) {
+			await updateScanJobByExternalId('nessus', String(scanId), {
+				status: 'error',
+				errorMessage: `สแกนถูกยกเลิก (${status})`
+			});
 			return json({ status, imported: false });
 		}
 		if (!DONE.has(status)) {
@@ -29,9 +34,14 @@ export async function GET({ params, locals }) {
 
 		const html = await exportScanHtml(scanId);
 		const result = await parseAndInsert(`nessus-scan-${scanId}.html`, html);
+		await updateScanJobByExternalId('nessus', String(scanId), {
+			status: 'done',
+			reportId: result.reportId ?? result.existingReportId ?? null
+		});
 		return json({ status, imported: true, ...result });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		await updateScanJobByExternalId('nessus', String(scanId), { status: 'error', errorMessage: message });
 		return json({ error: message }, { status: 502 });
 	}
 }
