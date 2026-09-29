@@ -63,9 +63,14 @@
 					<a class="topbar-link" href="/scan">{t($lang, 'nav_scan')}</a>
 				{/if}
 				{#if data.user.role === 'admin'}
-					<a class="topbar-link" href="/users">{t($lang, 'nav_users')}</a>
-					<a class="topbar-link" href="/settings">{t($lang, 'nav_settings')}</a>
-					<a class="topbar-link" href="/links">{t($lang, 'nav_links')}</a>
+					<details class="topbar-menu">
+						<summary>⚙️ จัดการระบบ</summary>
+						<div class="topbar-menu-panel">
+							<a class="topbar-menu-item" href="/users">{t($lang, 'nav_users')}</a>
+							<a class="topbar-menu-item" href="/settings">{t($lang, 'nav_settings')}</a>
+							<a class="topbar-menu-item" href="/links">{t($lang, 'nav_links')}</a>
+						</div>
+					</details>
 				{/if}
 				<a class="topbar-link" href="/logout">{t($lang, 'nav_logout')}</a>
 			{:else}
@@ -89,13 +94,14 @@
 		border-bottom: 1px solid var(--border);
 	}
 	.topbar-inner {
-		max-width: 1000px;
+		max-width: 1100px;
 		margin: 0 auto;
-		padding: 0.5rem 1.25rem;
+		padding: 0.6rem 1.25rem;
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 1rem;
+		gap: 0.4rem 1rem;
 		font-size: 0.82rem;
 	}
 	.topbar-brand {
@@ -109,6 +115,7 @@
 	}
 	.topbar-user {
 		color: var(--muted);
+		white-space: nowrap;
 	}
 	.topbar-role {
 		opacity: 0.7;
@@ -118,9 +125,56 @@
 		color: var(--accent);
 		text-decoration: none;
 		font-weight: 600;
+		white-space: nowrap;
 	}
 	.topbar-link:hover {
 		text-decoration: underline;
+	}
+	.topbar-menu {
+		position: relative;
+	}
+	.topbar-menu summary {
+		list-style: none;
+		color: var(--accent);
+		font-weight: 600;
+		cursor: pointer;
+		white-space: nowrap;
+		padding: 0.15rem 0.3rem;
+		border-radius: 6px;
+	}
+	.topbar-menu summary::-webkit-details-marker {
+		display: none;
+	}
+	.topbar-menu[open] summary,
+	.topbar-menu summary:hover {
+		background: var(--bg);
+	}
+	.topbar-menu-panel {
+		position: absolute;
+		top: calc(100% + 0.4rem);
+		right: 0;
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.35rem;
+		display: flex;
+		flex-direction: column;
+		min-width: 160px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		z-index: 20;
+	}
+	.topbar-menu-item {
+		color: var(--text);
+		text-decoration: none;
+		font-weight: 500;
+		font-size: 0.85rem;
+		padding: 0.45rem 0.6rem;
+		border-radius: 6px;
+		white-space: nowrap;
+	}
+	.topbar-menu-item:hover {
+		background: var(--bg);
+		color: var(--accent);
 	}
 	.icon-btn {
 		background: none;
