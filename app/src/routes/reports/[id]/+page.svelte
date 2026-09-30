@@ -87,6 +87,43 @@
 		</div>
 	</div>
 
+	{#if data.networkSummary}
+		<div class="panel">
+			<h2 class="summary-h2">📊 สรุปผลรายเครือข่าย</h2>
+			<div class="summary-cards">
+				<div class="scard"><div class="n">{data.networkSummary.networks.length}</div><div class="l">เครือข่ายที่สแกน</div></div>
+				<div class="scard"><div class="n">{data.networkSummary.totalIps.toLocaleString()}</div><div class="l">IP ที่สแกนทั้งหมด</div></div>
+				<div class="scard" class:vuln={data.networkSummary.totalVulnerable > 0}>
+					<div class="n">{data.networkSummary.totalVulnerable}</div><div class="l">โฮสต์ที่พบช่องโหว่</div>
+				</div>
+			</div>
+			<table>
+				<thead>
+					<tr>
+						<th>เครือข่าย (CIDR)</th>
+						<th>จำนวน IP</th>
+						<th>ผลตรวจ</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each data.networkSummary.networks as net (net.block)}
+						<tr>
+							<td class="mono">{net.block}</td>
+							<td class="mono">{net.ipCount.toLocaleString()}</td>
+							<td>
+								{#if net.vulnerableCount > 0}
+									<span class="badge err">พบช่องโหว่ {net.vulnerableCount} โฮสต์</span>
+								{:else}
+									<span class="badge ok">ไม่พบช่องโหว่</span>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+
 	<div class="panel">
 		{#if data.findings.length === 0}
 			<div class="empty">
@@ -153,6 +190,40 @@
 </div>
 
 <style>
+	.summary-h2 {
+		font-size: 1rem;
+		margin: 0 0 0.9rem;
+	}
+	.summary-cards {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.75rem;
+		margin-bottom: 1.25rem;
+	}
+	.scard {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 0.9rem 1rem;
+	}
+	.scard .n {
+		font-size: 1.6rem;
+		font-weight: 700;
+		line-height: 1;
+	}
+	.scard .l {
+		font-size: 0.78rem;
+		color: var(--muted);
+		margin-top: 0.35rem;
+	}
+	.scard.vuln .n {
+		color: #f19a9a;
+	}
+	@media (max-width: 560px) {
+		.summary-cards {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
 	.meta {
 		display: flex;
 		gap: 0.6rem;

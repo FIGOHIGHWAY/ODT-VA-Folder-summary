@@ -76,3 +76,46 @@ export function summarizeResolvedTargets(resolved, previewCount = 20) {
 	const shown = resolved.slice(0, previewCount).join(', ');
 	return `${shown} และอีก ${resolved.length - previewCount} เครื่อง (รวม ${resolved.length} เครื่อง)`;
 }
+
+/**
+ * Build a per-network breakdown for a scan whose original target field
+ * listed multiple hosts/CIDR blocks — how many IPs each block covers and
+ * how many of that block's hosts turned up in findings. Used to render a
+ * network-by-network summary (like a manually-written scan report) instead
+ * of just a flat finding list or a bare "0 findings" message.
+ * @param {string} originalTargets the raw target field as typed (comma/newline separated)
+ * @param {Array<{ target?: string }>} findings
+ * @param {number} [maxHosts]
+ * @returns {{ networks: Array<{ block: string, ipCount: number, vulnerableCount: number }>, totalIps: number, totalVulnerable: number } | null}
+ *   null if the target field wasn't actually a multi-host/CIDR scan
+ */
+export function buildNetworkSummary(originalTargets, findings, maxHosts = 4096) {
+	const blocks = String(originalTargets ?? '')
+		.split(/[\n,]+/)
+		.map((t) => t.trim())
+		.filter(Boolean);
+	if (blocks.length === 0) return null;
+
+	const vulnerableTargets = new Set(findings.map((f) => f.target).filter(Boolean));
+
+	const networks = blocks.map((block) => {
+		let ips;
+		try {
+			ips = expandCidrToken(block, maxHosts);
+		} catch {
+			ips = [block];
+		}
+		const vulnerableCount = ips.filter((ip) => vulnerableTargets.has(ip)).length;
+		return { block, ipCount: ips.length, vulnerableCount };
+	});
+
+	const totalIps = networks.reduce((sum, n) => sum + n.ipCount, 0);
+	const isMultiHost = totalIps > 1;
+	if (!isMultiHost) return null;
+
+	return {
+		networks,
+		totalIps,
+		totalVulnerable: networks.reduce((sum, n) => sum + n.vulnerableCount, 0)
+	};
+}

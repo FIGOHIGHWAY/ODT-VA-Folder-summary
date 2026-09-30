@@ -4,12 +4,15 @@ const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
 /**
  * Render findings as a PDF report (Buffer) — one row per finding, most
- * severe first, grouped visually by a title header.
+ * severe first, grouped visually by a title header. When `networkSummary`
+ * is given (a multi-host/CIDR scan), a per-network breakdown table is drawn
+ * first, and an all-clear message replaces the finding table when there are
+ * no findings at all rather than leaving an empty page.
  * @param {Array<object>} findings
- * @param {{ title: string, subtitle?: string }} params
+ * @param {{ title: string, subtitle?: string, networkSummary?: { networks: Array<{ block: string, ipCount: number, vulnerableCount: number }>, totalIps: number, totalVulnerable: number } | null }} params
  * @returns {Promise<Buffer>}
  */
-export function findingsToPdf(findings, { title, subtitle }) {
+export function findingsToPdf(findings, { title, subtitle, networkSummary = null }) {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocument({ margin: 36, size: 'A4', layout: 'landscape' });
 		/** @type {Buffer[]} */
@@ -24,6 +27,26 @@ export function findingsToPdf(findings, { title, subtitle }) {
 			doc.fillColor('#000000');
 		}
 		doc.moveDown(0.5);
+
+		if (networkSummary) {
+			doc.font('Helvetica-Bold').fontSize(11).text('สรุปผลรายเครือข่าย');
+			doc.font('Helvetica').fontSize(9).moveDown(0.3);
+			doc.text(
+				`เครือข่ายที่สแกน: ${networkSummary.networks.length}   IP ที่สแกนทั้งหมด: ${networkSummary.totalIps}   โฮสต์ที่พบช่องโหว่: ${networkSummary.totalVulnerable}`
+			);
+			doc.moveDown(0.4);
+			for (const net of networkSummary.networks) {
+				const verdict = net.vulnerableCount > 0 ? `พบช่องโหว่ ${net.vulnerableCount} โฮสต์` : 'ไม่พบช่องโหว่';
+				doc.text(`${net.block}  (${net.ipCount} IP)  —  ${verdict}`);
+			}
+			doc.moveDown(0.8);
+		}
+
+		if (findings.length === 0) {
+			doc.font('Helvetica-Bold').fontSize(12).text('ไม่พบช่องโหว่จากการสแกนนี้');
+			doc.end();
+			return;
+		}
 
 		const sorted = [...findings].sort(
 			(a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)

@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { listFindingsForReport } from '$lib/server/db.js';
+import { listFindingsForReport, getReportMeta } from '$lib/server/db.js';
+import { buildNetworkSummary } from '$lib/server/cidr.js';
 import { findingsToPdf } from '$lib/server/pdf.js';
 
 export async function GET({ params }) {
@@ -7,13 +8,18 @@ export async function GET({ params }) {
 	if (!Number.isInteger(reportId)) {
 		throw error(400, 'invalid report id');
 	}
-	const findings = await listFindingsForReport(reportId);
-	if (findings.length === 0) {
-		throw error(404, `ไม่พบ finding ของ report #${reportId}`);
+	const [findings, meta] = await Promise.all([
+		listFindingsForReport(reportId),
+		getReportMeta(reportId)
+	]);
+	if (!meta) {
+		throw error(404, `ไม่พบ report #${reportId}`);
 	}
+	const networkSummary = meta.scan_target ? buildNetworkSummary(meta.scan_target, findings) : null;
 	const pdf = await findingsToPdf(findings, {
 		title: `VA Scan Findings — Report #${reportId}`,
-		subtitle: `${findings.length} finding(s) - generated ${new Date().toISOString()}`
+		subtitle: `${findings.length} finding(s) - generated ${new Date().toISOString()}`,
+		networkSummary
 	});
 	return new Response(pdf, {
 		headers: {
