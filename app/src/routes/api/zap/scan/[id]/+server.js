@@ -10,12 +10,10 @@ export async function DELETE({ params, locals }) {
 	const jobId = params.id;
 	try {
 		const cancelled = await cancelScan(jobId);
-		if (cancelled) {
-			await updateScanJobByExternalId('zap', jobId, {
-				status: 'error',
-				errorMessage: 'ยกเลิกโดยผู้ใช้'
-			});
-		}
+		await updateScanJobByExternalId('zap', jobId, {
+			status: 'error',
+			errorMessage: cancelled ? 'ยกเลิกโดยผู้ใช้' : 'ยกเลิกโดยผู้ใช้ (server รีสตาร์ทไปแล้ว หยุด scan ที่กำลังรันอยู่บน ZAP แบบ best-effort)'
+		});
 		return json({ cancelled });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

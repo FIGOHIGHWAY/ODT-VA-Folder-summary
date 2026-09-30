@@ -12,6 +12,22 @@
 	const STATUS_LABEL = { running: '⏳ กำลังสแกน', done: '✅ สำเร็จ', error: '❌ ล้มเหลว' };
 
 	let ipGroups = $state(data.ipGroups);
+
+	let cancellingJobs = $state(new Set());
+
+	/** Cancel a running job from the scan-history table (a scan started in an
+	 * earlier page session, so there's no in-memory client state for it). */
+	async function cancelHistoryJob(job) {
+		cancellingJobs = new Set(cancellingJobs).add(job.id);
+		try {
+			await fetch(`/api/${job.tool}/scan/${job.external_id}`, { method: 'DELETE' });
+			await invalidateAll();
+		} finally {
+			const next = new Set(cancellingJobs);
+			next.delete(job.id);
+			cancellingJobs = next;
+		}
+	}
 	let newGroupName = $state('');
 	let newGroupTargets = $state('');
 	let groupError = $state('');
@@ -793,6 +809,16 @@
 							<td>
 								{#if job.report_id}
 									<a class="button" href="/reports/{job.report_id}">ดูผล</a>
+								{/if}
+								{#if job.status === 'running' && job.tool !== 'nessus'}
+									<button
+										type="button"
+										class="button"
+										disabled={cancellingJobs.has(job.id)}
+										onclick={() => cancelHistoryJob(job)}
+									>
+										{cancellingJobs.has(job.id) ? '⏳' : '⛔ ยกเลิก'}
+									</button>
 								{/if}
 							</td>
 						</tr>

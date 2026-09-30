@@ -900,8 +900,8 @@ export async function updateScanJobByExternalId(tool, externalId, { status, repo
  */
 export async function listRecentScanJobs(limit = 30) {
 	const { rows } = await pool.query(
-		`SELECT sj.id, sj.tool, sj.target, sj.extra, sj.resolved_targets, sj.status, sj.report_id,
-		        sj.error_message, sj.created_by, sj.created_at, r.original_filename
+		`SELECT sj.id, sj.tool, sj.target, sj.external_id, sj.extra, sj.resolved_targets, sj.status,
+		        sj.report_id, sj.error_message, sj.created_by, sj.created_at, r.original_filename
 		 FROM scan_jobs sj
 		 LEFT JOIN reports r ON r.id = sj.report_id
 		 ORDER BY sj.created_at DESC

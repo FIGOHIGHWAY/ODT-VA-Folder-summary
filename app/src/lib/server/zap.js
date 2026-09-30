@@ -151,11 +151,28 @@ export function getScanStatus(jobId) {
  */
 export async function cancelScan(jobId) {
 	const job = jobs.get(jobId);
-	if (!job || job.status !== 'running') return false;
+	if (!job || job.status !== 'running') {
+		// Not tracked in memory — likely the server restarted since this scan
+		// was launched. Best effort: stop everything currently running on
+		// ZAP directly, since in practice only one scan runs at a time here.
+		await stopAllActiveScans();
+		return false;
+	}
 	job.cancelled = true;
 	if (job.currentScanType && job.currentScanId != null) {
 		const stopPath = `/JSON/${job.currentScanType}/action/stop/`;
 		await zapGet(stopPath, { scanId: job.currentScanId }).catch(() => {});
 	}
 	return true;
+}
+
+async function stopAllActiveScans() {
+	for (const type of ['spider', 'ascan']) {
+		const { scans } = await zapGet(`/JSON/${type}/view/scans/`).catch(() => ({ scans: [] }));
+		for (const scan of scans ?? []) {
+			if (scan.state === 'RUNNING') {
+				await zapGet(`/JSON/${type}/action/stop/`, { scanId: scan.id }).catch(() => {});
+			}
+		}
+	}
 }

@@ -9,11 +9,13 @@ export async function DELETE({ params, locals }) {
 	}
 	const jobId = params.id;
 	const cancelled = cancelScan(jobId);
-	if (cancelled) {
-		await updateScanJobByExternalId('nuclei', jobId, {
-			status: 'error',
-			errorMessage: 'ยกเลิกโดยผู้ใช้'
-		});
-	}
+	// Even if the job isn't tracked in memory anymore (e.g. the server
+	// restarted since it was launched, so the real process can't be
+	// reached), still clear its "running" status — it can't be un-stuck
+	// otherwise, and the underlying process has likely already ended too.
+	await updateScanJobByExternalId('nuclei', jobId, {
+		status: 'error',
+		errorMessage: cancelled ? 'ยกเลิกโดยผู้ใช้' : 'ยกเลิกโดยผู้ใช้ (server รีสตาร์ทไปแล้ว ไม่สามารถหยุด process จริงได้)'
+	});
 	return json({ cancelled });
 }
