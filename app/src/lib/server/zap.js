@@ -36,30 +36,50 @@ async function waitForCompletion(statusPath, scanId) {
 	throw new Error(`${statusPath} ไม่เสร็จภายในเวลาที่กำหนด`);
 }
 
+/** Splits a free-text target field (comma or newline separated) into a clean list. */
+function splitTargets(targets) {
+	return String(targets)
+		.split(/[\n,]+/)
+		.map((t) => t.trim())
+		.filter(Boolean);
+}
+
 /**
- * Launch a Spider crawl followed by an Active Scan against a target URL,
- * then fetch the resulting alerts. Runs in the background; poll with
- * getScanStatus(jobId).
- * @param {string} targetUrl
+ * Launch a Spider crawl followed by an Active Scan against one or more
+ * target URLs (run sequentially), then fetch the resulting alerts. Runs in
+ * the background; poll with getScanStatus(jobId).
+ * @param {string} targetUrls one URL, or several separated by commas/newlines
  * @returns {string} jobId
  */
-export function startScan(targetUrl) {
+export function startScan(targetUrls) {
+	const urlList = splitTargets(targetUrls);
+	if (urlList.length === 0) {
+		throw new Error('ต้องระบุ URL อย่างน้อย 1 รายการ');
+	}
+
 	const jobId = randomUUID();
-	jobs.set(jobId, { status: 'running', phase: 'spider', alerts: null, error: null });
+	jobs.set(jobId, { status: 'running', phase: 'spider', progress: '', alerts: null, error: null });
 
 	(async () => {
 		const job = jobs.get(jobId);
 		try {
-			const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
-			await waitForCompletion('/JSON/spider/view/status/', spiderId);
+			const allAlerts = [];
+			for (const [i, targetUrl] of urlList.entries()) {
+				job.progress = urlList.length > 1 ? `${i + 1}/${urlList.length}: ${targetUrl}` : '';
 
-			job.phase = 'active-scan';
-			const { scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl });
-			await waitForCompletion('/JSON/ascan/view/status/', ascanId);
+				job.phase = 'spider';
+				const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
+				await waitForCompletion('/JSON/spider/view/status/', spiderId);
 
-			job.phase = 'fetching-alerts';
-			const { alerts } = await zapGet('/JSON/core/view/alerts/', { baseurl: targetUrl });
-			job.alerts = alerts;
+				job.phase = 'active-scan';
+				const { scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl });
+				await waitForCompletion('/JSON/ascan/view/status/', ascanId);
+
+				job.phase = 'fetching-alerts';
+				const { alerts } = await zapGet('/JSON/core/view/alerts/', { baseurl: targetUrl });
+				allAlerts.push(...alerts);
+			}
+			job.alerts = allAlerts;
 			job.status = 'done';
 		} catch (err) {
 			job.status = 'error';
@@ -72,12 +92,12 @@ export function startScan(targetUrl) {
 
 /**
  * @param {string} jobId
- * @returns {{ status: 'running'|'done'|'error'|'not_found', phase?: string, alerts?: object|null, error?: string }}
+ * @returns {{ status: 'running'|'done'|'error'|'not_found', phase?: string, progress?: string, alerts?: object|null, error?: string }}
  */
 export function getScanStatus(jobId) {
 	const job = jobs.get(jobId);
 	if (!job) return { status: 'not_found' };
-	if (job.status === 'running') return { status: 'running', phase: job.phase };
+	if (job.status === 'running') return { status: 'running', phase: job.phase, progress: job.progress };
 	if (job.status === 'error') return { status: 'error', error: job.error };
 	jobs.delete(jobId);
 	return { status: 'done', alerts: job.alerts };

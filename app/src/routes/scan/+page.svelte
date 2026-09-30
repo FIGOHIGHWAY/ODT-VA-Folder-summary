@@ -80,6 +80,7 @@
 	let zapTarget = $state('');
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
 	let zapPhase = $state('');
+	let zapProgress = $state('');
 	let zapError = $state('');
 	let zapResult = $state(null);
 	let zapPollTimer = null;
@@ -117,6 +118,7 @@
 			}
 			zapStatus = 'running';
 			zapPhase = body.phase ?? '';
+			zapProgress = body.progress ?? '';
 			zapPollTimer = setTimeout(() => pollZapScan(jobId), 5000);
 		} catch (err) {
 			zapStatus = 'error';
@@ -304,7 +306,8 @@
 		<div class="panel">
 			<h2><img src={nessusLogo} alt="Nessus" class="tool-logo" /> สั่งสแกนด้วย Nessus</h2>
 			<p class="sub">
-				พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง Nessus เริ่มสแกน แล้วดึงผลกลับมา import
+				พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน เช่น
+				10.1.2.3, 10.1.2.4) ระบบจะสั่ง Nessus เริ่มสแกน แล้วดึงผลกลับมา import
 				เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
 			</p>
 			<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
@@ -352,7 +355,8 @@
 	<div class="panel">
 		<h2><img src={openvasLogo} alt="OpenVAS" class="tool-logo" /> สั่งสแกนด้วย OpenVAS</h2>
 		<p class="sub">
-			พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง OpenVAS เริ่มสแกน แล้วดึงผลกลับมา import
+			พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน เช่น
+			10.1.2.3, 10.1.2.4) ระบบจะสั่ง OpenVAS เริ่มสแกน แล้วดึงผลกลับมา import
 			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
 		</p>
 		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
@@ -403,8 +407,9 @@
 	<div class="panel">
 		<h2><img src={zapLogo} alt="ZAP" class="tool-logo" /> สั่งสแกนด้วย OWASP ZAP</h2>
 		<p class="sub">
-			ใส่ URL เต็มรูปแบบของเว็บเป้าหมาย (เช่น https://example.kku.ac.th) ระบบจะสั่ง ZAP crawl
-			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ต่อเนื่อง แล้วดึงผลกลับมา import
+			ใส่ URL เต็มรูปแบบของเว็บเป้าหมาย (เช่น https://example.kku.ac.th) คั่นด้วย comma
+			เพื่อสแกนหลาย URL ต่อเนื่องกัน ระบบจะสั่ง ZAP crawl
+			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ทีละ URL แล้วดึงผลกลับมา import
 			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
 		</p>
 		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
@@ -428,6 +433,9 @@
 		{#if zapStatus === 'running'}
 			<div class="status">
 				<span class="badge">{ZAP_PHASE_LABEL[zapPhase] ?? 'กำลังสแกน...'}</span>
+				{#if zapProgress}
+					<span style="color:var(--muted)">({zapProgress})</span>
+				{/if}
 			</div>
 		{:else if zapStatus === 'error'}
 			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
@@ -453,9 +461,10 @@
 	<div class="panel">
 		<h2><img src={nucleiLogo} alt="Nuclei" class="tool-logo" /> สั่งสแกนด้วย Nuclei</h2>
 		<p class="sub">
-			พิมพ์ IP หรือโดเมนของเป้าหมาย ระบบจะสั่ง Nuclei เริ่มสแกน แล้วดึงผลกลับมา import
-			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ ใส่ CVE ID (เช่น CVE-2021-44228) ถ้าต้องการสแกนหาช่องโหว่เจาะจง
-			ตัวเดียว — เว้นว่างไว้เพื่อสแกนด้วยชุด template เต็มรูปแบบ
+			พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน) ระบบจะสั่ง Nuclei
+			เริ่มสแกน แล้วดึงผลกลับมา import เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ ใส่ CVE ID (เช่น
+			CVE-2021-44228) ถ้าต้องการสแกนหาช่องโหว่เจาะจงตัวเดียว — เว้นว่างไว้เพื่อสแกนด้วยชุด template
+			เต็มรูปแบบ
 		</p>
 		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
 			<input

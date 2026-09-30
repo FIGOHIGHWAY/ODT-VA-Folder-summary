@@ -13,8 +13,16 @@ export async function POST({ request, locals }) {
 	if (!trimmed) {
 		return json({ error: 'ต้องระบุ URL เป้าหมาย' }, { status: 400 });
 	}
-	if (!/^https?:\/\//i.test(trimmed)) {
-		return json({ error: 'ZAP ต้องการ URL เต็มรูปแบบ เช่น https://example.kku.ac.th' }, { status: 400 });
+	const urlList = trimmed
+		.split(/[\n,]+/)
+		.map((t) => t.trim())
+		.filter(Boolean);
+	const badUrl = urlList.find((u) => !/^https?:\/\//i.test(u));
+	if (badUrl) {
+		return json(
+			{ error: `ZAP ต้องการ URL เต็มรูปแบบสำหรับทุกรายการ เช่น https://example.kku.ac.th (ผิดที่: "${badUrl}")` },
+			{ status: 400 }
+		);
 	}
 
 	try {
