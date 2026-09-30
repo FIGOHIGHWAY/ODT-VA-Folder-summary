@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { listFindingsForReport, hasOriginalFile } from '$lib/server/db.js';
+import { listFindingsForReport, hasOriginalFile, getReportMeta } from '$lib/server/db.js';
 import { canDelete } from '$lib/server/permissions.js';
 
 export async function load({ params, locals }) {
@@ -7,14 +7,19 @@ export async function load({ params, locals }) {
 	if (!Number.isInteger(reportId)) {
 		throw error(400, 'invalid report id');
 	}
-	const [findings, hasOriginal] = await Promise.all([
+	const [findings, hasOriginal, meta] = await Promise.all([
 		listFindingsForReport(reportId),
-		hasOriginalFile(reportId)
+		hasOriginalFile(reportId),
+		getReportMeta(reportId)
 	]);
+	if (!meta) {
+		throw error(404, 'report not found');
+	}
 	return {
 		reportId,
 		findings,
 		hasOriginal,
+		meta,
 		canDelete: canDelete(locals.user?.role ?? 'user')
 	};
 }

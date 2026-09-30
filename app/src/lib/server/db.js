@@ -796,6 +796,25 @@ export async function deleteUserAiKey(email) {
  * List findings for a given report.
  * @param {number} reportId
  */
+/**
+ * Fetch a report's own metadata (tool, filename, domain, dates) plus the
+ * originating scan job's target, if it came from a live scan — so a
+ * zero-finding report can still show what was actually scanned instead of
+ * rendering as a blank page.
+ * @param {number} reportId
+ */
+export async function getReportMeta(reportId) {
+	const { rows } = await pool.query(
+		`SELECT r.id, r.source_tool, r.original_filename, r.domain, r.scanned_at, r.imported_at,
+		        sj.target AS scan_target, sj.extra AS scan_extra
+		 FROM reports r
+		 LEFT JOIN scan_jobs sj ON sj.report_id = r.id
+		 WHERE r.id = $1`,
+		[reportId]
+	);
+	return rows[0] ?? null;
+}
+
 export async function listFindingsForReport(reportId) {
 	const { rows } = await pool.query(
 		`SELECT * FROM findings WHERE report_id = $1 ORDER BY

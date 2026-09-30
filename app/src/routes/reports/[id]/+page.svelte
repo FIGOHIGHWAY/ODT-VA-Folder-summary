@@ -48,7 +48,22 @@
 	<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem">
 		<div>
 			<h1>Report #{data.reportId}</h1>
-			<p class="sub">{data.findings.length} finding(s) — คลิกแถวเพื่อดูรายละเอียดแบบเต็ม</p>
+			<p class="sub">
+				{data.findings.length} finding(s)
+				{#if data.findings.length > 0}— คลิกแถวเพื่อดูรายละเอียดแบบเต็ม{/if}
+			</p>
+			<p class="meta">
+				<span class="badge">{data.meta.source_tool.toUpperCase()}</span>
+				{#if data.meta.scan_target}
+					<span class="mono">🎯 {data.meta.scan_target}</span>
+				{:else if data.meta.domain}
+					<span class="mono">🎯 {data.meta.domain}</span>
+				{/if}
+				{#if data.meta.scan_extra}
+					<span class="mono">({data.meta.scan_extra})</span>
+				{/if}
+				<span>สแกนเมื่อ {new Date(data.meta.scanned_at ?? data.meta.imported_at).toLocaleString('th-TH')}</span>
+			</p>
 		</div>
 		<div style="display:flex; gap:.5rem">
 			<a class="button" href="/api/export/report/{data.reportId}">⬇️ ดึงไฟล์ (PDF)</a>
@@ -68,7 +83,15 @@
 
 	<div class="panel">
 		{#if data.findings.length === 0}
-			<div class="empty">ไม่พบ finding ใน report นี้</div>
+			<div class="empty">
+				✅ สแกน{#if data.meta.scan_target}
+					<span class="mono">{data.meta.scan_target}</span>
+				{:else}
+					target นี้
+				{/if}{#if data.meta.scan_extra}
+					<span class="mono">({data.meta.scan_extra})</span>
+				{/if} ด้วย {data.meta.source_tool.toUpperCase()} แล้ว — ไม่พบช่องโหว่
+			</div>
 		{:else}
 			<div class="scroll">
 				<table>
@@ -117,6 +140,15 @@
 </div>
 
 <style>
+	.meta {
+		display: flex;
+		gap: 0.6rem;
+		align-items: center;
+		flex-wrap: wrap;
+		color: var(--muted);
+		font-size: 0.85rem;
+		margin-top: 0.35rem;
+	}
 	.finding-row {
 		cursor: pointer;
 	}
