@@ -27,15 +27,33 @@ async function zapGet(path, params = {}) {
 	return res.json();
 }
 
+// A large/slow site can legitimately take a long time to spider or scan, so
+// this doesn't time out on elapsed time alone — only if progress genuinely
+// stops advancing for a long stretch (a real stall), up to a generous outer
+// cap so a truly stuck scan doesn't poll forever.
+const POLL_INTERVAL_MS = 5000;
+const STALL_LIMIT = 360; // 360 * 5s = 30 min with no progress movement
+const MAX_ATTEMPTS = 4320; // 4320 * 5s = 6 hours absolute cap
+
 /** @param {{ percent: number }} job */
 async function waitForCompletion(statusPath, scanId, job) {
-	for (let attempt = 0; attempt < 180; attempt++) {
+	let lastPercent = -1;
+	let stalledFor = 0;
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		const { status } = await zapGet(statusPath, { scanId });
 		job.percent = Number(status);
 		if (job.percent >= 100) return;
-		await new Promise((r) => setTimeout(r, 5000));
+
+		stalledFor = job.percent > lastPercent ? 0 : stalledFor + 1;
+		lastPercent = job.percent;
+		if (stalledFor >= STALL_LIMIT) {
+			throw new Error(
+				`${statusPath} ค้างที่ ${job.percent}% มานาน ${(STALL_LIMIT * POLL_INTERVAL_MS) / 60000} นาทีโดยไม่ขยับ — ถือว่าสแกนติดค้าง`
+			);
+		}
+		await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 	}
-	throw new Error(`${statusPath} ไม่เสร็จภายในเวลาที่กำหนด`);
+	throw new Error(`${statusPath} ไม่เสร็จภายในเวลาที่กำหนด (เกิน ${(MAX_ATTEMPTS * POLL_INTERVAL_MS) / 3600000} ชั่วโมง)`);
 }
 
 /** Splits a free-text target field (comma or newline separated) into a clean list. */
