@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { createAndLaunchScan } from '$lib/server/openvas.js';
 import { insertScanJob } from '$lib/server/db.js';
+import { expandTargetList, summarizeResolvedTargets } from '$lib/server/cidr.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -14,6 +15,13 @@ export async function POST({ request, locals }) {
 		return json({ error: 'ต้องระบุ target (IP หรือโดเมน)' }, { status: 400 });
 	}
 
+	let resolvedTargets = null;
+	try {
+		resolvedTargets = summarizeResolvedTargets(expandTargetList(trimmed));
+	} catch (err) {
+		return json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+	}
+
 	try {
 		const { taskId } = await createAndLaunchScan(
 			`VA Scan - ${trimmed} - ${new Date().toISOString()}`,
@@ -23,6 +31,7 @@ export async function POST({ request, locals }) {
 			tool: 'openvas',
 			target: trimmed,
 			externalId: taskId,
+			resolvedTargets,
 			createdBy: locals.user?.email ?? locals.user?.name ?? null
 		});
 		return json({ taskId });

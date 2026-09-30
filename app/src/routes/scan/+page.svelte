@@ -697,7 +697,12 @@
 					{#each data.jobs as job (job.id)}
 						<tr>
 							<td>{TOOL_LABEL[job.tool] ?? job.tool}{job.extra ? ` (${job.extra})` : ''}</td>
-							<td class="mono">{job.target}</td>
+							<td class="mono">
+								{job.target}
+								{#if job.resolved_targets && job.resolved_targets !== job.target}
+									<div class="resolved-targets-note">📋 {job.resolved_targets}</div>
+								{/if}
+							</td>
 							<td>
 								<span class="badge" class:ok={job.status === 'done'} class:err={job.status === 'error'}>
 									{STATUS_LABEL[job.status] ?? job.status}
@@ -819,6 +824,12 @@
 		color: #f19a9a;
 		font-size: 0.76rem;
 		line-height: 1.4;
+		word-break: break-word;
+	}
+	.resolved-targets-note {
+		margin-top: 0.25rem;
+		color: var(--muted);
+		font-size: 0.76rem;
 		word-break: break-word;
 	}
 	.tool-logo {

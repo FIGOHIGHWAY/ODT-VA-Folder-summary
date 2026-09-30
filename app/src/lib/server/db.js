@@ -806,7 +806,7 @@ export async function deleteUserAiKey(email) {
 export async function getReportMeta(reportId) {
 	const { rows } = await pool.query(
 		`SELECT r.id, r.source_tool, r.original_filename, r.domain, r.scanned_at, r.imported_at,
-		        sj.target AS scan_target, sj.extra AS scan_extra
+		        sj.target AS scan_target, sj.extra AS scan_extra, sj.resolved_targets AS scan_resolved_targets
 		 FROM reports r
 		 LEFT JOIN scan_jobs sj ON sj.report_id = r.id
 		 WHERE r.id = $1`,
@@ -863,11 +863,18 @@ export async function getReportRawHtml(reportId) {
  * @param {{ tool: 'nessus'|'openvas'|'nuclei', target: string, externalId: string, extra?: string|null, createdBy?: string|null }} params
  * @returns {Promise<number>} the new scan_jobs row id
  */
-export async function insertScanJob({ tool, target, externalId, extra = null, createdBy = null }) {
+export async function insertScanJob({
+	tool,
+	target,
+	externalId,
+	extra = null,
+	resolvedTargets = null,
+	createdBy = null
+}) {
 	const { rows } = await pool.query(
-		`INSERT INTO scan_jobs (tool, target, external_id, extra, created_by)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		[tool, target, externalId, extra, createdBy]
+		`INSERT INTO scan_jobs (tool, target, external_id, extra, resolved_targets, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		[tool, target, externalId, extra, resolvedTargets, createdBy]
 	);
 	return rows[0].id;
 }
@@ -893,8 +900,8 @@ export async function updateScanJobByExternalId(tool, externalId, { status, repo
  */
 export async function listRecentScanJobs(limit = 30) {
 	const { rows } = await pool.query(
-		`SELECT sj.id, sj.tool, sj.target, sj.extra, sj.status, sj.report_id, sj.error_message,
-		        sj.created_by, sj.created_at, r.original_filename
+		`SELECT sj.id, sj.tool, sj.target, sj.extra, sj.resolved_targets, sj.status, sj.report_id,
+		        sj.error_message, sj.created_by, sj.created_at, r.original_filename
 		 FROM scan_jobs sj
 		 LEFT JOIN reports r ON r.id = sj.report_id
 		 ORDER BY sj.created_at DESC

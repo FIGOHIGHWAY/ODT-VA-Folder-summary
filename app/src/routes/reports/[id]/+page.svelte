@@ -64,6 +64,12 @@
 				{/if}
 				<span>สแกนเมื่อ {new Date(data.meta.scanned_at ?? data.meta.imported_at).toLocaleString('th-TH')}</span>
 			</p>
+			{#if data.meta.scan_resolved_targets}
+				<p class="meta resolved-targets">
+					<span>📋 IP ที่สแกนไปทั้งหมด:</span>
+					<span class="mono">{data.meta.scan_resolved_targets}</span>
+				</p>
+			{/if}
 		</div>
 		<div style="display:flex; gap:.5rem">
 			<a class="button" href="/api/export/report/{data.reportId}">⬇️ ดึงไฟล์ (PDF)</a>
@@ -84,13 +90,20 @@
 	<div class="panel">
 		{#if data.findings.length === 0}
 			<div class="empty">
-				✅ สแกน{#if data.meta.scan_target}
-					<span class="mono">{data.meta.scan_target}</span>
-				{:else}
-					target นี้
-				{/if}{#if data.meta.scan_extra}
-					<span class="mono">({data.meta.scan_extra})</span>
-				{/if} ด้วย {data.meta.source_tool.toUpperCase()} แล้ว — ไม่พบช่องโหว่
+				<div>
+					✅ สแกน{#if data.meta.scan_target}
+						<span class="mono">{data.meta.scan_target}</span>
+					{:else}
+						target นี้
+					{/if}{#if data.meta.scan_extra}
+						<span class="mono">({data.meta.scan_extra})</span>
+					{/if} ด้วย {data.meta.source_tool.toUpperCase()} แล้ว — ไม่พบช่องโหว่
+				</div>
+				{#if data.meta.scan_resolved_targets}
+					<div class="resolved-targets-detail">
+						📋 IP ที่สแกนไปทั้งหมด: <span class="mono">{data.meta.scan_resolved_targets}</span>
+					</div>
+				{/if}
 			</div>
 		{:else}
 			<div class="scroll">
@@ -148,6 +161,18 @@
 		color: var(--muted);
 		font-size: 0.85rem;
 		margin-top: 0.35rem;
+	}
+	.meta.resolved-targets {
+		align-items: flex-start;
+	}
+	.meta.resolved-targets .mono {
+		word-break: break-word;
+	}
+	.resolved-targets-detail {
+		margin-top: 0.75rem;
+		color: var(--muted);
+		font-size: 0.85rem;
+		word-break: break-word;
 	}
 	.finding-row {
 		cursor: pointer;

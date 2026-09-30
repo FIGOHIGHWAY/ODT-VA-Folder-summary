@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { startScan } from '$lib/server/nuclei.js';
 import { insertScanJob } from '$lib/server/db.js';
+import { expandTargetList, summarizeResolvedTargets } from '$lib/server/cidr.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -15,6 +16,13 @@ export async function POST({ request, locals }) {
 	}
 	const trimmedCve = String(cveId ?? '').trim() || null;
 
+	let resolvedTargets = null;
+	try {
+		resolvedTargets = summarizeResolvedTargets(expandTargetList(trimmed));
+	} catch (err) {
+		return json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+	}
+
 	try {
 		const jobId = startScan(trimmed, trimmedCve);
 		await insertScanJob({
@@ -22,6 +30,7 @@ export async function POST({ request, locals }) {
 			target: trimmed,
 			externalId: jobId,
 			extra: trimmedCve,
+			resolvedTargets,
 			createdBy: locals.user?.email ?? locals.user?.name ?? null
 		});
 		return json({ jobId });
