@@ -19,9 +19,7 @@ export function parseOpenvasXml(xml, sourceLabel = 'openvas report') {
 	const $ = cheerio.load(xml, { xmlMode: true });
 
 	const resultNodes = $('results > result');
-	if (resultNodes.length === 0) {
-		throw new Error(`parseOpenvasXml: ไม่พบ <result> ใน ${sourceLabel} — รายงานอาจยังไม่มีผล`);
-	}
+	// No <result> nodes just means the scan found nothing — not a failure.
 
 	/** @type {Array<object>} */
 	const results = [];

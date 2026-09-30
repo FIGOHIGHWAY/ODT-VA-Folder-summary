@@ -15,9 +15,10 @@ const RISK_TO_SEVERITY = {
  * @returns {Array<object>}
  */
 export function parseZapAlerts(alerts, sourceLabel = 'zap scan') {
-	if (!Array.isArray(alerts) || alerts.length === 0) {
-		throw new Error(`parseZapAlerts: ไม่พบผลลัพธ์ใน ${sourceLabel} (ไม่มีช่องโหว่ที่ตรวจพบ หรือสแกนล้มเหลว)`);
+	if (!Array.isArray(alerts)) {
+		throw new Error(`parseZapAlerts: รูปแบบผลลัพธ์ไม่ถูกต้องใน ${sourceLabel}`);
 	}
+	// An empty array just means the scan found nothing — not a failure.
 
 	return alerts.map((a) => {
 		const severity = RISK_TO_SEVERITY[String(a.risk ?? '').toLowerCase()] ?? 'info';

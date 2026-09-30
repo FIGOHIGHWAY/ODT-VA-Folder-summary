@@ -21,9 +21,8 @@ export function parseNucleiJsonl(jsonl, sourceLabel = 'nuclei scan') {
 		.map((l) => l.trim())
 		.filter(Boolean);
 
-	if (lines.length === 0) {
-		throw new Error(`parseNucleiJsonl: ไม่พบผลลัพธ์ใน ${sourceLabel} (ไม่มีช่องโหว่ที่ตรวจพบ หรือสแกนล้มเหลว)`);
-	}
+	// No lines means nuclei ran cleanly and simply found nothing — not a
+	// failure — so this returns an empty finding list rather than throwing.
 
 	/** @type {Array<object>} */
 	const results = [];
