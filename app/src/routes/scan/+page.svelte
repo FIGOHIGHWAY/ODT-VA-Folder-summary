@@ -771,6 +771,7 @@
 	}
 	.jobs-table {
 		width: 100%;
+		table-layout: fixed;
 		border-collapse: collapse;
 		font-size: 0.85rem;
 	}
@@ -780,14 +781,45 @@
 		padding: 0.5rem 0.6rem;
 		border-bottom: 1px solid var(--border);
 		vertical-align: top;
+		overflow-wrap: break-word;
+	}
+	.jobs-table th:nth-child(1),
+	.jobs-table td:nth-child(1) {
+		width: 14%;
+	}
+	.jobs-table th:nth-child(2),
+	.jobs-table td:nth-child(2) {
+		width: 22%;
+	}
+	.jobs-table th:nth-child(3),
+	.jobs-table td:nth-child(3) {
+		width: 28%;
+	}
+	.jobs-table th:nth-child(4),
+	.jobs-table td:nth-child(4) {
+		width: 16%;
+	}
+	.jobs-table th:nth-child(5),
+	.jobs-table td:nth-child(5) {
+		width: 12%;
+	}
+	.jobs-table th:nth-child(6),
+	.jobs-table td:nth-child(6) {
+		width: 8%;
 	}
 	.mono {
 		font-family: var(--mono, monospace);
+		word-break: break-all;
 	}
 	.job-error {
-		margin-top: 0.25rem;
+		margin-top: 0.35rem;
+		padding: 0.4rem 0.5rem;
+		border-radius: 6px;
+		background: rgba(241, 154, 154, 0.1);
 		color: #f19a9a;
-		font-size: 0.78rem;
+		font-size: 0.76rem;
+		line-height: 1.4;
+		word-break: break-word;
 	}
 	.tool-logo {
 		height: 24px;
