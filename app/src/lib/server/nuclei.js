@@ -45,7 +45,7 @@ export function startScan(targets, cveId = null) {
 		throw new Error('ต้องระบุ target อย่างน้อย 1 รายการ');
 	}
 	const jobId = randomUUID();
-	jobs.set(jobId, { status: 'running', output: '', error: '' });
+	jobs.set(jobId, { status: 'running', output: '', error: '', process: null });
 
 	const targetArgs = targetList.map((t) => `-u ${shellQuote(t)}`).join(' ');
 	const remoteCmd = cveId
@@ -69,6 +69,7 @@ export function startScan(targets, cveId = null) {
 	);
 
 	const job = jobs.get(jobId);
+	job.process = ssh;
 	ssh.stdout.on('data', (chunk) => {
 		job.output += chunk.toString('utf-8');
 	});
@@ -107,4 +108,20 @@ export function getScanStatus(jobId) {
 	if (job.status === 'running') return { status: 'running' };
 	jobs.delete(jobId);
 	return { status: 'done', output: job.output };
+}
+
+/**
+ * Cancel a running scan by killing the local SSH client process — closing
+ * the connection makes the remote nuclei process's stdout pipe break,
+ * which ends it too.
+ * @param {string} jobId
+ * @returns {boolean} whether a running job was found and cancelled
+ */
+export function cancelScan(jobId) {
+	const job = jobs.get(jobId);
+	if (!job || job.status !== 'running') return false;
+	job.process?.kill();
+	job.status = 'error';
+	job.error = 'ยกเลิกโดยผู้ใช้';
+	return true;
 }

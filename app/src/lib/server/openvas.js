@@ -156,3 +156,11 @@ export async function getReportXml(reportId) {
 	]);
 	return res;
 }
+
+/**
+ * Stop a running scan task via GMP.
+ * @param {string} taskId
+ */
+export async function cancelScan(taskId) {
+	await gmpSession([`<stop_task task_id="${taskId}"/>`]);
+}

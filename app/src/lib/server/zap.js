@@ -35,11 +35,12 @@ const POLL_INTERVAL_MS = 5000;
 const STALL_LIMIT = 360; // 360 * 5s = 30 min with no progress movement
 const MAX_ATTEMPTS = 4320; // 4320 * 5s = 6 hours absolute cap
 
-/** @param {{ percent: number }} job */
+/** @param {{ percent: number, cancelled?: boolean }} job */
 async function waitForCompletion(statusPath, scanId, job) {
 	let lastPercent = -1;
 	let stalledFor = 0;
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+		if (job.cancelled) throw new Error('ยกเลิกโดยผู้ใช้');
 		const { status } = await zapGet(statusPath, { scanId });
 		job.percent = Number(status);
 		if (job.percent >= 100) return;
@@ -78,7 +79,17 @@ export function startScan(targetUrls) {
 	}
 
 	const jobId = randomUUID();
-	jobs.set(jobId, { status: 'running', phase: 'spider', progress: '', percent: 0, alerts: null, error: null });
+	jobs.set(jobId, {
+		status: 'running',
+		phase: 'spider',
+		progress: '',
+		percent: 0,
+		alerts: null,
+		error: null,
+		cancelled: false,
+		currentScanType: null,
+		currentScanId: null
+	});
 
 	(async () => {
 		const job = jobs.get(jobId);
@@ -90,11 +101,15 @@ export function startScan(targetUrls) {
 				job.phase = 'spider';
 				job.percent = 0;
 				const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
+				job.currentScanType = 'spider';
+				job.currentScanId = spiderId;
 				await waitForCompletion('/JSON/spider/view/status/', spiderId, job);
 
 				job.phase = 'active-scan';
 				job.percent = 0;
 				const { scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl });
+				job.currentScanType = 'ascan';
+				job.currentScanId = ascanId;
 				await waitForCompletion('/JSON/ascan/view/status/', ascanId, job);
 
 				job.phase = 'fetching-alerts';
@@ -125,4 +140,22 @@ export function getScanStatus(jobId) {
 	if (job.status === 'error') return { status: 'error', error: job.error };
 	jobs.delete(jobId);
 	return { status: 'done', alerts: job.alerts };
+}
+
+/**
+ * Cancel a running scan: tells ZAP to stop the current spider/active-scan
+ * job and flags the tracked job so its polling loop exits immediately
+ * instead of waiting for the next status check.
+ * @param {string} jobId
+ * @returns {Promise<boolean>} whether a running job was found and cancelled
+ */
+export async function cancelScan(jobId) {
+	const job = jobs.get(jobId);
+	if (!job || job.status !== 'running') return false;
+	job.cancelled = true;
+	if (job.currentScanType && job.currentScanId != null) {
+		const stopPath = `/JSON/${job.currentScanType}/action/stop/`;
+		await zapGet(stopPath, { scanId: job.currentScanId }).catch(() => {});
+	}
+	return true;
 }

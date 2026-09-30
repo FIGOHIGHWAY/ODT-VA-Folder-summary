@@ -59,6 +59,8 @@
 	let openvasPercent = $state(null);
 	let openvasError = $state('');
 	let openvasResult = $state(null);
+	let openvasJobId = $state(null);
+	let openvasCancelling = $state(false);
 	let openvasPollTimer = null;
 
 	function stopOpenvasPoll() {
@@ -115,10 +117,24 @@
 				return;
 			}
 			openvasStatus = 'running';
+			openvasJobId = body.taskId;
 			pollOpenvasScan(body.taskId);
 		} catch (err) {
 			openvasStatus = 'error';
 			openvasError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function cancelOpenvasScan() {
+		if (!openvasJobId) return;
+		openvasCancelling = true;
+		try {
+			await fetch(`/api/openvas/scan/${openvasJobId}`, { method: 'DELETE' });
+			stopOpenvasPoll();
+			openvasStatus = 'error';
+			openvasError = 'ยกเลิกโดยผู้ใช้';
+		} finally {
+			openvasCancelling = false;
 		}
 	}
 
@@ -129,6 +145,8 @@
 	let zapPercent = $state(null);
 	let zapError = $state('');
 	let zapResult = $state(null);
+	let zapJobId = $state(null);
+	let zapCancelling = $state(false);
 	let zapPollTimer = null;
 
 	function stopZapPoll() {
@@ -193,10 +211,24 @@
 				return;
 			}
 			zapStatus = 'running';
+			zapJobId = body.jobId;
 			pollZapScan(body.jobId);
 		} catch (err) {
 			zapStatus = 'error';
 			zapError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function cancelZapScan() {
+		if (!zapJobId) return;
+		zapCancelling = true;
+		try {
+			await fetch(`/api/zap/scan/${zapJobId}`, { method: 'DELETE' });
+			stopZapPoll();
+			zapStatus = 'error';
+			zapError = 'ยกเลิกโดยผู้ใช้';
+		} finally {
+			zapCancelling = false;
 		}
 	}
 
@@ -205,6 +237,8 @@
 	let nucleiStatus = $state('idle'); // idle | starting | running | done | error
 	let nucleiError = $state('');
 	let nucleiResult = $state(null);
+	let nucleiJobId = $state(null);
+	let nucleiCancelling = $state(false);
 	let nucleiPollTimer = null;
 
 	function stopNucleiPoll() {
@@ -260,10 +294,24 @@
 				return;
 			}
 			nucleiStatus = 'running';
+			nucleiJobId = body.jobId;
 			pollNucleiScan(body.jobId);
 		} catch (err) {
 			nucleiStatus = 'error';
 			nucleiError = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function cancelNucleiScan() {
+		if (!nucleiJobId) return;
+		nucleiCancelling = true;
+		try {
+			await fetch(`/api/nuclei/scan/${nucleiJobId}`, { method: 'DELETE' });
+			stopNucleiPoll();
+			nucleiStatus = 'error';
+			nucleiError = 'ยกเลิกโดยผู้ใช้';
+		} finally {
+			nucleiCancelling = false;
 		}
 	}
 
@@ -514,7 +562,12 @@
 		</div>
 
 		{#if openvasStatus === 'running'}
-			<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			<div class="status">
+				<span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span>
+				<button type="button" class="button" disabled={openvasCancelling} onclick={cancelOpenvasScan}>
+					{openvasCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
+				</button>
+			</div>
 			{#if openvasPercent !== null}
 				<div class="progress-bar">
 					<div class="progress-fill" style="width:{openvasPercent}%"></div>
@@ -588,6 +641,9 @@
 				{#if zapProgress}
 					<span style="color:var(--muted)">({zapProgress})</span>
 				{/if}
+				<button type="button" class="button" disabled={zapCancelling} onclick={cancelZapScan}>
+					{zapCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
+				</button>
 			</div>
 			{#if zapPercent !== null}
 				<div class="progress-bar">
@@ -668,7 +724,12 @@
 		</div>
 
 		{#if nucleiStatus === 'running'}
-			<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			<div class="status">
+				<span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span>
+				<button type="button" class="button" disabled={nucleiCancelling} onclick={cancelNucleiScan}>
+					{nucleiCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
+				</button>
+			</div>
 		{:else if nucleiStatus === 'error'}
 			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
 			<div class="err-box">{nucleiError}</div>
