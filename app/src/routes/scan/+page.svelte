@@ -800,6 +800,12 @@
 								<span class="badge" class:ok={job.status === 'done'} class:err={job.status === 'error'}>
 									{STATUS_LABEL[job.status] ?? job.status}
 								</span>
+								{#if job.status === 'running' && typeof job.livePercent === 'number'}
+									<div class="progress-bar progress-bar-sm">
+										<div class="progress-fill" style="width:{job.livePercent}%"></div>
+										<span class="progress-label">{job.livePercent}%</span>
+									</div>
+								{/if}
 								{#if job.status === 'error' && job.error_message}
 									<div class="job-error">{job.error_message}</div>
 								{/if}
@@ -977,6 +983,14 @@
 		font-weight: 600;
 		color: var(--text);
 		mix-blend-mode: difference;
+	}
+	.progress-bar-sm {
+		height: 1.1rem;
+		max-width: 160px;
+		margin-top: 0.35rem;
+	}
+	.progress-bar-sm .progress-label {
+		font-size: 0.65rem;
 	}
 	.badge {
 		padding: 0.2rem 0.6rem;
