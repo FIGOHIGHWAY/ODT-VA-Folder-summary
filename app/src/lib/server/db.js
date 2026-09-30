@@ -884,3 +884,28 @@ export async function listRecentScanJobs(limit = 30) {
 	);
 	return rows;
 }
+
+/** List saved IP/target groups, newest first, for reuse across scan tools. */
+export async function listIpGroups() {
+	const { rows } = await pool.query(`SELECT id, name, targets, created_by, created_at FROM ip_groups ORDER BY created_at DESC`);
+	return rows;
+}
+
+/**
+ * Save a named group of targets (comma/newline-separated) so it can be
+ * re-selected later instead of retyping the same host list.
+ * @param {{ name: string, targets: string, createdBy?: string|null }} params
+ * @returns {Promise<number>} the new ip_groups row id
+ */
+export async function createIpGroup({ name, targets, createdBy = null }) {
+	const { rows } = await pool.query(
+		`INSERT INTO ip_groups (name, targets, created_by) VALUES ($1, $2, $3) RETURNING id`,
+		[name, targets, createdBy]
+	);
+	return rows[0].id;
+}
+
+/** @param {number} id */
+export async function deleteIpGroup(id) {
+	await pool.query(`DELETE FROM ip_groups WHERE id = $1`, [id]);
+}

@@ -11,6 +11,49 @@
 	const TOOL_LABEL = { nessus: 'Nessus', openvas: 'OpenVAS', nuclei: 'Nuclei', zap: 'ZAP' };
 	const STATUS_LABEL = { running: '⏳ กำลังสแกน', done: '✅ สำเร็จ', error: '❌ ล้มเหลว' };
 
+	let ipGroups = $state(data.ipGroups);
+	let newGroupName = $state('');
+	let newGroupTargets = $state('');
+	let groupError = $state('');
+	let groupBusy = $state(false);
+
+	async function createGroup() {
+		const name = newGroupName.trim();
+		const targets = newGroupTargets.trim();
+		if (!name || !targets) return;
+		groupBusy = true;
+		groupError = '';
+		try {
+			const res = await fetch('/api/ip-groups', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name, targets })
+			});
+			const body = await res.json();
+			if (!res.ok) {
+				groupError = body.error ?? 'สร้างกลุ่มไม่สำเร็จ';
+				return;
+			}
+			newGroupName = '';
+			newGroupTargets = '';
+			const listRes = await fetch('/api/ip-groups');
+			ipGroups = (await listRes.json()).groups;
+		} finally {
+			groupBusy = false;
+		}
+	}
+
+	async function deleteGroup(id) {
+		if (!confirm('ลบกลุ่มนี้ทิ้ง?')) return;
+		await fetch(`/api/ip-groups/${id}`, { method: 'DELETE' });
+		ipGroups = ipGroups.filter((g) => g.id !== id);
+	}
+
+	function applyGroup(groupId, setter) {
+		const group = ipGroups.find((g) => g.id === Number(groupId));
+		if (group) setter(group.targets);
+	}
+
 	let openvasTarget = $state('');
 	let openvasStatus = $state('idle'); // idle | starting | running | done | error
 	let openvasError = $state('');
@@ -302,6 +345,63 @@
 	<h1>สั่งสแกน</h1>
 	<p class="hint">สั่งสแกนหาช่องโหว่จากเครื่องมือที่เชื่อมต่อไว้ แล้วดึงผลกลับมา import เข้าระบบให้อัตโนมัติ</p>
 
+	<div class="panel">
+		<h2>📁 กลุ่ม IP</h2>
+		<p class="sub">
+			บันทึกชุด IP/host ที่ใช้บ่อยไว้เป็นกลุ่ม แล้วเลือกใส่ในช่อง target ของแต่ละเครื่องมือได้เลย
+			โดยไม่ต้องพิมพ์ใหม่ทุกครั้ง — เหมาะกับการสแกนหาช่องโหว่เดียวกันในหลาย IP พร้อมกัน
+		</p>
+		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-start">
+			<input
+				type="text"
+				bind:value={newGroupName}
+				placeholder="ชื่อกลุ่ม เช่น เซิร์ฟเวอร์แผนก IT"
+				disabled={groupBusy}
+				style="flex:0 0 220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+			/>
+			<textarea
+				bind:value={newGroupTargets}
+				placeholder="IP/host คั่นด้วย comma หรือขึ้นบรรทัดใหม่ เช่น 10.1.2.3, 10.1.2.4"
+				disabled={groupBusy}
+				rows="2"
+				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:inherit"
+			></textarea>
+			<button
+				type="button"
+				class="button"
+				disabled={groupBusy || !newGroupName.trim() || !newGroupTargets.trim()}
+				onclick={createGroup}
+			>
+				💾 บันทึกกลุ่ม
+			</button>
+		</div>
+		{#if groupError}
+			<div class="err-box">{groupError}</div>
+		{/if}
+		{#if ipGroups.length > 0}
+			<table class="jobs-table" style="margin-top:.75rem">
+				<thead>
+					<tr>
+						<th>ชื่อกลุ่ม</th>
+						<th>Targets</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each ipGroups as group (group.id)}
+						<tr>
+							<td>{group.name}</td>
+							<td class="mono">{group.targets}</td>
+							<td>
+								<button type="button" class="button" onclick={() => deleteGroup(group.id)}>🗑️ ลบ</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
+	</div>
+
 	{#if NESSUS_SCAN_ENABLED}
 		<div class="panel">
 			<h2><img src={nessusLogo} alt="Nessus" class="tool-logo" /> สั่งสแกนด้วย Nessus</h2>
@@ -318,6 +418,20 @@
 					disabled={nessusStatus === 'starting' || nessusStatus === 'running'}
 					style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 				/>
+				{#if ipGroups.length > 0}
+					<select
+						onchange={(e) => {
+							applyGroup(e.target.value, (v) => (nessusTarget = v));
+							e.target.value = '';
+						}}
+						style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+					>
+						<option value="">📁 เลือกกลุ่ม IP...</option>
+						{#each ipGroups as group (group.id)}
+							<option value={group.id}>{group.name}</option>
+						{/each}
+					</select>
+				{/if}
 				<button
 					type="button"
 					class="button"
@@ -367,6 +481,20 @@
 				disabled={openvasStatus === 'starting' || openvasStatus === 'running'}
 				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
+			{#if ipGroups.length > 0}
+				<select
+					onchange={(e) => {
+						applyGroup(e.target.value, (v) => (openvasTarget = v));
+						e.target.value = '';
+					}}
+					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				>
+					<option value="">📁 เลือกกลุ่ม IP...</option>
+					{#each ipGroups as group (group.id)}
+						<option value={group.id}>{group.name}</option>
+					{/each}
+				</select>
+			{/if}
 			<button
 				type="button"
 				class="button"
@@ -420,6 +548,20 @@
 				disabled={zapStatus === 'starting' || zapStatus === 'running'}
 				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
+			{#if ipGroups.length > 0}
+				<select
+					onchange={(e) => {
+						applyGroup(e.target.value, (v) => (zapTarget = v));
+						e.target.value = '';
+					}}
+					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				>
+					<option value="">📁 เลือกกลุ่ม IP...</option>
+					{#each ipGroups as group (group.id)}
+						<option value={group.id}>{group.name}</option>
+					{/each}
+				</select>
+			{/if}
 			<button
 				type="button"
 				class="button"
@@ -481,6 +623,20 @@
 				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
 				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
+			{#if ipGroups.length > 0}
+				<select
+					onchange={(e) => {
+						applyGroup(e.target.value, (v) => (nucleiTarget = v));
+						e.target.value = '';
+					}}
+					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+				>
+					<option value="">📁 เลือกกลุ่ม IP...</option>
+					{#each ipGroups as group (group.id)}
+						<option value={group.id}>{group.name}</option>
+					{/each}
+				</select>
+			{/if}
 			<button
 				type="button"
 				class="button"

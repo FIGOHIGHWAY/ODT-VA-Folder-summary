@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS ip_groups (
+	id SERIAL PRIMARY KEY,
+	name TEXT NOT NULL UNIQUE,
+	targets TEXT NOT NULL,
+	created_by TEXT,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
