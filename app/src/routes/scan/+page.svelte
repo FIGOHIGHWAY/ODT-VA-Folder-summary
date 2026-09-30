@@ -56,6 +56,7 @@
 
 	let openvasTarget = $state('');
 	let openvasStatus = $state('idle'); // idle | starting | running | done | error
+	let openvasPercent = $state(null);
 	let openvasError = $state('');
 	let openvasResult = $state(null);
 	let openvasPollTimer = null;
@@ -86,6 +87,7 @@
 				return;
 			}
 			openvasStatus = 'running';
+			openvasPercent = typeof body.percent === 'number' ? body.percent : null;
 			openvasPollTimer = setTimeout(() => pollOpenvasScan(taskId), 5000);
 		} catch (err) {
 			openvasStatus = 'error';
@@ -124,6 +126,7 @@
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
 	let zapPhase = $state('');
 	let zapProgress = $state('');
+	let zapPercent = $state(null);
 	let zapError = $state('');
 	let zapResult = $state(null);
 	let zapPollTimer = null;
@@ -162,6 +165,7 @@
 			zapStatus = 'running';
 			zapPhase = body.phase ?? '';
 			zapProgress = body.progress ?? '';
+			zapPercent = typeof body.percent === 'number' ? body.percent : null;
 			zapPollTimer = setTimeout(() => pollZapScan(jobId), 5000);
 		} catch (err) {
 			zapStatus = 'error';
@@ -511,6 +515,12 @@
 
 		{#if openvasStatus === 'running'}
 			<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
+			{#if openvasPercent !== null}
+				<div class="progress-bar">
+					<div class="progress-fill" style="width:{openvasPercent}%"></div>
+					<span class="progress-label">{openvasPercent}%</span>
+				</div>
+			{/if}
 		{:else if openvasStatus === 'error'}
 			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
 			<div class="err-box">{openvasError}</div>
@@ -579,6 +589,12 @@
 					<span style="color:var(--muted)">({zapProgress})</span>
 				{/if}
 			</div>
+			{#if zapPercent !== null}
+				<div class="progress-bar">
+					<div class="progress-fill" style="width:{zapPercent}%"></div>
+					<span class="progress-label">{zapPercent}%</span>
+				</div>
+			{/if}
 		{:else if zapStatus === 'error'}
 			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
 			<div class="err-box">{zapError}</div>
@@ -849,6 +865,31 @@
 		gap: 0.5rem;
 		align-items: center;
 		flex-wrap: wrap;
+	}
+	.progress-bar {
+		position: relative;
+		margin-top: 0.6rem;
+		height: 1.4rem;
+		border-radius: 999px;
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		overflow: hidden;
+	}
+	.progress-fill {
+		height: 100%;
+		background: var(--accent);
+		transition: width 0.4s ease;
+	}
+	.progress-label {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--text);
+		mix-blend-mode: difference;
 	}
 	.badge {
 		padding: 0.2rem 0.6rem;

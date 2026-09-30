@@ -137,11 +137,12 @@ export async function createAndLaunchScan(name, targets) {
 export async function getScanStatus(taskId) {
 	const [, res] = await gmpSession([`<get_tasks task_id="${taskId}"/>`]);
 	const status = res.match(/<status>([^<]*)<\/status>/)?.[1] ?? 'Unknown';
+	const percent = Number(res.match(/<progress>([^<]*)<\/progress>/)?.[1] ?? NaN);
 	const reportId =
 		res.match(/<last_report>\s*<report id="([^"]*)"/)?.[1] ??
 		res.match(/<current_report>\s*<report id="([^"]*)"/)?.[1] ??
 		null;
-	return { status, reportId };
+	return { status, reportId, percent: Number.isFinite(percent) ? percent : null };
 }
 
 /**

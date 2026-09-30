@@ -27,10 +27,12 @@ async function zapGet(path, params = {}) {
 	return res.json();
 }
 
-async function waitForCompletion(statusPath, scanId) {
+/** @param {{ percent: number }} job */
+async function waitForCompletion(statusPath, scanId, job) {
 	for (let attempt = 0; attempt < 180; attempt++) {
 		const { status } = await zapGet(statusPath, { scanId });
-		if (Number(status) >= 100) return;
+		job.percent = Number(status);
+		if (job.percent >= 100) return;
 		await new Promise((r) => setTimeout(r, 5000));
 	}
 	throw new Error(`${statusPath} ไม่เสร็จภายในเวลาที่กำหนด`);
@@ -58,7 +60,7 @@ export function startScan(targetUrls) {
 	}
 
 	const jobId = randomUUID();
-	jobs.set(jobId, { status: 'running', phase: 'spider', progress: '', alerts: null, error: null });
+	jobs.set(jobId, { status: 'running', phase: 'spider', progress: '', percent: 0, alerts: null, error: null });
 
 	(async () => {
 		const job = jobs.get(jobId);
@@ -68,14 +70,17 @@ export function startScan(targetUrls) {
 				job.progress = urlList.length > 1 ? `${i + 1}/${urlList.length}: ${targetUrl}` : '';
 
 				job.phase = 'spider';
+				job.percent = 0;
 				const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
-				await waitForCompletion('/JSON/spider/view/status/', spiderId);
+				await waitForCompletion('/JSON/spider/view/status/', spiderId, job);
 
 				job.phase = 'active-scan';
+				job.percent = 0;
 				const { scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl });
-				await waitForCompletion('/JSON/ascan/view/status/', ascanId);
+				await waitForCompletion('/JSON/ascan/view/status/', ascanId, job);
 
 				job.phase = 'fetching-alerts';
+				job.percent = 100;
 				const { alerts } = await zapGet('/JSON/core/view/alerts/', { baseurl: targetUrl });
 				allAlerts.push(...alerts);
 			}
@@ -97,7 +102,8 @@ export function startScan(targetUrls) {
 export function getScanStatus(jobId) {
 	const job = jobs.get(jobId);
 	if (!job) return { status: 'not_found' };
-	if (job.status === 'running') return { status: 'running', phase: job.phase, progress: job.progress };
+	if (job.status === 'running')
+		return { status: 'running', phase: job.phase, progress: job.progress, percent: job.percent };
 	if (job.status === 'error') return { status: 'error', error: job.error };
 	jobs.delete(jobId);
 	return { status: 'done', alerts: job.alerts };

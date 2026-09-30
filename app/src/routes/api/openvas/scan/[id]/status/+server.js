@@ -16,7 +16,7 @@ export async function GET({ params, locals }) {
 	const taskId = params.id;
 
 	try {
-		const { status, reportId } = await getScanStatus(taskId);
+		const { status, reportId, percent } = await getScanStatus(taskId);
 
 		if (FAILED.has(status)) {
 			await updateScanJobByExternalId('openvas', taskId, {
@@ -26,7 +26,7 @@ export async function GET({ params, locals }) {
 			return json({ status, imported: false });
 		}
 		if (!DONE.has(status) || !reportId) {
-			return json({ status, imported: false });
+			return json({ status, percent, imported: false });
 		}
 
 		const xml = await getReportXml(reportId);

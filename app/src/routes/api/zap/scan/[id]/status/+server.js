@@ -16,7 +16,13 @@ export async function GET({ params, locals }) {
 		return json({ error: 'ไม่พบงานสแกนนี้' }, { status: 404 });
 	}
 	if (job.status === 'running') {
-		return json({ status: 'running', phase: job.phase, progress: job.progress, imported: false });
+		return json({
+			status: 'running',
+			phase: job.phase,
+			progress: job.progress,
+			percent: job.percent,
+			imported: false
+		});
 	}
 	if (job.status === 'error') {
 		await updateScanJobByExternalId('zap', jobId, { status: 'error', errorMessage: job.error });
