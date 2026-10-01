@@ -111,6 +111,16 @@ export function getScanStatus(jobId) {
 }
 
 /**
+ * Whether this server process still tracks the job. Unlike getScanStatus
+ * this never consumes a finished result. A job launched before the last
+ * server restart is lost from memory and can never report back.
+ * @param {string} jobId
+ */
+export function isTracked(jobId) {
+	return jobs.has(jobId);
+}
+
+/**
  * Cancel a running scan by killing the local SSH client process — closing
  * the connection makes the remote nuclei process's stdout pipe break,
  * which ends it too.

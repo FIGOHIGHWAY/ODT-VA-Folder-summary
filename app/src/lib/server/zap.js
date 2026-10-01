@@ -143,6 +143,16 @@ export function getScanStatus(jobId) {
 }
 
 /**
+ * Whether this server process still tracks the job. Unlike getScanStatus
+ * this never consumes a finished result. A job launched before the last
+ * server restart is lost from memory and can never report back.
+ * @param {string} jobId
+ */
+export function isTracked(jobId) {
+	return jobs.has(jobId);
+}
+
+/**
  * Cancel a running scan: tells ZAP to stop the current spider/active-scan
  * job and flags the tracked job so its polling loop exits immediately
  * instead of waiting for the next status check.
