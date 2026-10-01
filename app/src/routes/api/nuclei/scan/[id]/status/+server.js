@@ -16,7 +16,7 @@ export async function GET({ params, locals }) {
 		return json({ error: 'ไม่พบงานสแกนนี้' }, { status: 404 });
 	}
 	if (job.status === 'running') {
-		return json({ status: 'running', imported: false });
+		return json({ status: 'running', percent: job.percent, imported: false });
 	}
 	if (job.status === 'error') {
 		await updateScanJobByExternalId('nuclei', jobId, { status: 'error', errorMessage: job.error });

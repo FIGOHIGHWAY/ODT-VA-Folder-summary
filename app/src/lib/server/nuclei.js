@@ -45,12 +45,15 @@ export function startScan(targets, cveId = null) {
 		throw new Error('ต้องระบุ target อย่างน้อย 1 รายการ');
 	}
 	const jobId = randomUUID();
-	jobs.set(jobId, { status: 'running', output: '', error: '', process: null });
+	jobs.set(jobId, { status: 'running', output: '', error: '', percent: null, process: null });
 
+	// -stats-json makes nuclei print a JSON progress line (with "percent")
+	// to stderr every -si seconds, alongside the -jsonl results on stdout.
 	const targetArgs = targetList.map((t) => `-u ${shellQuote(t)}`).join(' ');
+	const statsArgs = '-stats -stats-json -si 5';
 	const remoteCmd = cveId
-		? `nuclei ${targetArgs} -id ${shellQuote(cveId.toUpperCase())} -jsonl -silent`
-		: `nuclei ${targetArgs} -jsonl -silent`;
+		? `nuclei ${targetArgs} -id ${shellQuote(cveId.toUpperCase())} -jsonl -silent ${statsArgs}`
+		: `nuclei ${targetArgs} -jsonl -silent ${statsArgs}`;
 	const ssh = spawn(
 		'ssh',
 		[
@@ -73,8 +76,12 @@ export function startScan(targets, cveId = null) {
 	ssh.stdout.on('data', (chunk) => {
 		job.output += chunk.toString('utf-8');
 	});
+	let stderrBuffer = '';
 	ssh.stderr.on('data', (chunk) => {
-		job.error += chunk.toString('utf-8');
+		stderrBuffer += chunk.toString('utf-8');
+		const lines = stderrBuffer.split('\n');
+		stderrBuffer = lines.pop() ?? '';
+		for (const line of lines) handleStderrLine(job, line);
 	});
 	ssh.on('close', (code) => {
 		if (code === 0) {
@@ -92,6 +99,25 @@ export function startScan(targets, cveId = null) {
 	return jobId;
 }
 
+/** Routes a stderr line to the job's progress if it's a stats line, else to its error text. */
+function handleStderrLine(job, line) {
+	const trimmed = line.trim();
+	if (!trimmed) return;
+	if (trimmed.startsWith('{')) {
+		try {
+			const stats = JSON.parse(trimmed);
+			const percent = Number(stats.percent);
+			if (Number.isFinite(percent)) {
+				job.percent = percent;
+				return;
+			}
+		} catch {
+			// not a stats line — fall through and keep it as error text
+		}
+	}
+	job.error += `${line}\n`;
+}
+
 /** Only allow characters safe to embed unquoted-adjacent in the remote command; wrap the rest in single quotes. */
 function shellQuote(str) {
 	return `'${String(str).replace(/'/g, `'\\''`)}'`;
@@ -105,9 +131,19 @@ export function getScanStatus(jobId) {
 	const job = jobs.get(jobId);
 	if (!job) return { status: 'not_found' };
 	if (job.status === 'error') return { status: 'error', error: job.error };
-	if (job.status === 'running') return { status: 'running' };
+	if (job.status === 'running') return { status: 'running', percent: job.percent };
 	jobs.delete(jobId);
 	return { status: 'done', output: job.output };
+}
+
+/**
+ * Current progress percentage without consuming the job's result.
+ * @param {string} jobId
+ * @returns {number|null}
+ */
+export function peekPercent(jobId) {
+	const job = jobs.get(jobId);
+	return job && job.status === 'running' ? job.percent : null;
 }
 
 /**

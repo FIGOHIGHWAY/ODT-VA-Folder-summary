@@ -143,6 +143,16 @@ export function getScanStatus(jobId) {
 }
 
 /**
+ * Current progress percentage without consuming the job's result.
+ * @param {string} jobId
+ * @returns {number|null}
+ */
+export function peekPercent(jobId) {
+	const job = jobs.get(jobId);
+	return job && job.status === 'running' ? job.percent : null;
+}
+
+/**
  * Whether this server process still tracks the job. Unlike getScanStatus
  * this never consumes a finished result. A job launched before the last
  * server restart is lost from memory and can never report back.

@@ -2,8 +2,8 @@ import { error } from '@sveltejs/kit';
 import { canUpload } from '$lib/server/permissions.js';
 import { listRecentScanJobs, listIpGroups, updateScanJobByExternalId } from '$lib/server/db.js';
 import { getScanStatus as getOpenvasStatus } from '$lib/server/openvas.js';
-import { getScanStatus as getZapStatus, isTracked as isZapTracked } from '$lib/server/zap.js';
-import { isTracked as isNucleiTracked } from '$lib/server/nuclei.js';
+import { peekPercent as peekZapPercent, isTracked as isZapTracked } from '$lib/server/zap.js';
+import { peekPercent as peekNucleiPercent, isTracked as isNucleiTracked } from '$lib/server/nuclei.js';
 
 const ORPHANED_MESSAGE = 'ขาดการติดตาม: server รีสตาร์ทระหว่างสแกน — กรุณาสั่งสแกนใหม่';
 
@@ -39,8 +39,9 @@ async function attachLivePercent(jobs) {
 						const { percent } = await getOpenvasStatus(job.external_id);
 						job.livePercent = percent;
 					} else if (job.tool === 'zap') {
-						const status = getZapStatus(job.external_id);
-						job.livePercent = status.status === 'running' ? status.percent : null;
+						job.livePercent = peekZapPercent(job.external_id);
+					} else if (job.tool === 'nuclei') {
+						job.livePercent = peekNucleiPercent(job.external_id);
 					}
 				} catch {
 					// Best effort — leave livePercent unset if the tool's API/tunnel

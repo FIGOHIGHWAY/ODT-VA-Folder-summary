@@ -255,6 +255,7 @@
 	let nucleiResult = $state(null);
 	let nucleiJobId = $state(null);
 	let nucleiCancelling = $state(false);
+	let nucleiPercent = $state(null);
 	let nucleiPollTimer = null;
 
 	function stopNucleiPoll() {
@@ -283,6 +284,7 @@
 				return;
 			}
 			nucleiStatus = 'running';
+			nucleiPercent = typeof body.percent === 'number' ? body.percent : null;
 			nucleiPollTimer = setTimeout(() => pollNucleiScan(jobId), 5000);
 		} catch (err) {
 			nucleiStatus = 'error';
@@ -746,6 +748,12 @@
 					{nucleiCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
 				</button>
 			</div>
+			{#if nucleiPercent !== null}
+				<div class="progress-bar">
+					<div class="progress-fill" style="width:{nucleiPercent}%"></div>
+					<span class="progress-label">{nucleiPercent}%</span>
+				</div>
+			{/if}
 		{:else if nucleiStatus === 'error'}
 			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
 			<div class="err-box">{nucleiError}</div>
