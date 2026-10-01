@@ -1,6 +1,15 @@
+import path from 'node:path';
 import PDFDocument from 'pdfkit';
 
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+// pdfkit's built-in fonts (Helvetica etc.) have no Thai glyphs, so Thai text
+// renders as mojibake. Sarabun covers both Thai and Latin. The Dockerfile
+// copies app/fonts next to the build, so this resolves from the app root in
+// both dev and production.
+const FONT_DIR = path.join(process.cwd(), 'fonts');
+const FONT_REGULAR = path.join(FONT_DIR, 'Sarabun-Regular.ttf');
+const FONT_BOLD = path.join(FONT_DIR, 'Sarabun-Bold.ttf');
 
 /**
  * Render findings as a PDF report (Buffer) — one row per finding, most
@@ -21,6 +30,10 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 		doc.on('end', () => resolve(Buffer.concat(chunks)));
 		doc.on('error', reject);
 
+		doc.registerFont('Body', FONT_REGULAR);
+		doc.registerFont('Body-Bold', FONT_BOLD);
+		doc.font('Body');
+
 		doc.fontSize(16).text(title, { continued: false });
 		if (subtitle) {
 			doc.fontSize(10).fillColor('#666666').text(subtitle);
@@ -29,8 +42,8 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 		doc.moveDown(0.5);
 
 		if (networkSummary) {
-			doc.font('Helvetica-Bold').fontSize(11).text('สรุปผลรายเครือข่าย');
-			doc.font('Helvetica').fontSize(9).moveDown(0.3);
+			doc.font('Body-Bold').fontSize(11).text('สรุปผลรายเครือข่าย');
+			doc.font('Body').fontSize(9).moveDown(0.3);
 			doc.text(
 				`เครือข่ายที่สแกน: ${networkSummary.networks.length}   IP ที่สแกนทั้งหมด: ${networkSummary.totalIps}   โฮสต์ที่พบช่องโหว่: ${networkSummary.totalVulnerable}`
 			);
@@ -43,7 +56,7 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 		}
 
 		if (findings.length === 0) {
-			doc.font('Helvetica-Bold').fontSize(12).text('ไม่พบช่องโหว่จากการสแกนนี้');
+			doc.font('Body-Bold').fontSize(12).text('ไม่พบช่องโหว่จากการสแกนนี้');
 			doc.end();
 			return;
 		}
@@ -66,7 +79,7 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 		let y = doc.y;
 
 		function drawHeader() {
-			doc.font('Helvetica-Bold').fontSize(9);
+			doc.font('Body-Bold').fontSize(9);
 			let x = startX;
 			for (const col of columns) {
 				doc.text(col.label, x, y, { width: col.width, ellipsis: true });
@@ -75,7 +88,7 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 			y += 16;
 			doc.moveTo(startX, y).lineTo(startX + tableWidth, y).strokeColor('#cccccc').stroke();
 			y += 4;
-			doc.font('Helvetica').fontSize(8);
+			doc.font('Body').fontSize(8);
 		}
 
 		drawHeader();

@@ -14,5 +14,7 @@ RUN apk add --no-cache openssh-client
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/build ./build
+# Thai-capable font for PDF export (see lib/server/pdf.js).
+COPY fonts ./fonts
 EXPOSE 3000
 CMD ["node", "build"]

@@ -37,7 +37,12 @@ export function parseNucleiJsonl(jsonl, sourceLabel = 'nuclei scan') {
 
 		const info = entry.info ?? {};
 		const severity = SEVERITY_MAP[(info.severity ?? 'info').toLowerCase()] ?? 'info';
-		const cve = (info.classification?.['cve-id'] ?? [])[0] ?? null;
+		// Some CVE templates leave classification.cve-id empty, but
+		// nuclei-templates names CVE templates after the CVE itself.
+		const templateId = entry['template-id'] ?? entry.templateID ?? '';
+		const cve =
+			(info.classification?.['cve-id'] ?? [])[0] ??
+			(/^CVE-\d{4}-\d{4,}$/i.test(templateId) ? templateId.toUpperCase() : null);
 		const cvssScore = info.classification?.['cvss-score'] ?? null;
 
 		results.push({
