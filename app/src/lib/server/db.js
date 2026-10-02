@@ -850,7 +850,7 @@ export async function hasOriginalFile(reportId) {
  */
 export async function getReportRawHtml(reportId) {
 	const { rows } = await pool.query(
-		`SELECT original_filename, raw_html FROM reports WHERE id = $1`,
+		`SELECT original_filename, source_tool, raw_html FROM reports WHERE id = $1`,
 		[reportId]
 	);
 	return rows[0] ?? null;

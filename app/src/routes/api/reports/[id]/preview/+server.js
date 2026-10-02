@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { gunzipSync } from 'node:zlib';
 import { getReportRawHtml } from '$lib/server/db.js';
+import { isRawScanOutput, renderScanPreview } from '$lib/server/previewRender.js';
 
 export async function GET({ params }) {
 	const reportId = Number(params.id);
@@ -19,7 +20,15 @@ export async function GET({ params }) {
 		);
 	}
 
-	const html = gunzipSync(report.raw_html);
+	let html = gunzipSync(report.raw_html);
+	const raw = html.toString('utf-8');
+	if (isRawScanOutput(report.source_tool, raw)) {
+		html = renderScanPreview({
+			sourceTool: report.source_tool,
+			filename: report.original_filename,
+			raw
+		});
+	}
 	return new Response(html, {
 		headers: {
 			'Content-Type': 'text/html; charset=utf-8',
