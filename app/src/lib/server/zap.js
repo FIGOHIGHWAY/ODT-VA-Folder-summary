@@ -78,6 +78,12 @@ export function startScan(targetUrls) {
 		throw new Error('ต้องระบุ URL อย่างน้อย 1 รายการ');
 	}
 
+	// Each scan starts a fresh ZAP session (see below), which would wipe a
+	// concurrent scan's data — so only one ZAP scan may run at a time.
+	if ([...jobs.values()].some((j) => j.status === 'running')) {
+		throw new Error('มี ZAP scan กำลังทำงานอยู่ — รอให้เสร็จหรือยกเลิกก่อน แล้วค่อยสั่งใหม่');
+	}
+
 	const jobId = randomUUID();
 	jobs.set(jobId, {
 		status: 'running',
@@ -94,6 +100,11 @@ export function startScan(targetUrls) {
 	(async () => {
 		const job = jobs.get(jobId);
 		try {
+			// ZAP keeps every request/response from every past scan in memory
+			// for the life of the daemon; across scans that grew until the VM
+			// ran out of RAM and hung. A new session discards that history.
+			await zapGet('/JSON/core/action/newSession/', { name: '', overwrite: 'true' });
+
 			const allAlerts = [];
 			for (const [i, targetUrl] of urlList.entries()) {
 				job.progress = urlList.length > 1 ? `${i + 1}/${urlList.length}: ${targetUrl}` : '';
