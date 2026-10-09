@@ -104,6 +104,11 @@ export function startScan(targetUrls) {
 			// for the life of the daemon; across scans that grew until the VM
 			// ran out of RAM and hung. A new session discards that history.
 			await zapGet('/JSON/core/action/newSession/', { name: '', overwrite: 'true' });
+			// The DOM XSS rule launches one Firefox per active-scan thread; at
+			// ZAP's default of 8 threads that blew through the container's memory
+			// cap and killed ZAP mid-scan. 3 keeps DOM XSS checks within budget.
+			// Set every scan since the option resets when the container is recreated.
+			await zapGet('/JSON/ascan/action/setOptionThreadPerHost/', { Integer: '3' });
 
 			const allAlerts = [];
 			for (const [i, targetUrl] of urlList.entries()) {
