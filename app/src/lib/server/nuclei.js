@@ -33,9 +33,11 @@ function splitTargets(targets) {
  * @param {string|null} [cveId] when given, only the template matching this
  *   CVE is run (nuclei-templates names CVE templates after the CVE itself)
  *   instead of the full default template set.
+ * @param {(jobId: string, outcome: { output: string, error: string|null }) => Promise<{ ok: boolean, result?: object, error?: string }>} onFinish
+ *   persists the outcome; the job stays "running" until it resolves
  * @returns {string} jobId
  */
-export function startScan(targets, cveId = null) {
+export function startScan(targets, cveId, onFinish) {
 	const { host, user, keyPath } = config();
 	if (cveId && !CVE_ID_PATTERN.test(cveId)) {
 		throw new Error(`รูปแบบ CVE ID ไม่ถูกต้อง: "${cveId}" (ต้องเป็นรูปแบบ CVE-YYYY-NNNN)`);
@@ -83,18 +85,26 @@ export function startScan(targets, cveId = null) {
 		stderrBuffer = lines.pop() ?? '';
 		for (const line of lines) handleStderrLine(job, line);
 	});
-	ssh.on('close', (code) => {
-		if (code === 0) {
+	let settled = false;
+	async function settle(error) {
+		if (settled) return;
+		settled = true;
+		const outcome = await onFinish(jobId, { output: job.output, error });
+		job.output = '';
+		job.process = null;
+		if (outcome.ok) {
+			job.result = outcome.result;
 			job.status = 'done';
 		} else {
+			job.error = outcome.error;
 			job.status = 'error';
-			if (!job.error) job.error = `nuclei exited with code ${code}`;
 		}
+	}
+	ssh.on('close', (code) => {
+		const failed = code !== 0 || job.status === 'error';
+		settle(failed ? job.error.trim() || `nuclei exited with code ${code}` : null);
 	});
-	ssh.on('error', (err) => {
-		job.status = 'error';
-		job.error = err.message;
-	});
+	ssh.on('error', (err) => settle(err.message));
 
 	return jobId;
 }
@@ -125,15 +135,14 @@ function shellQuote(str) {
 
 /**
  * @param {string} jobId
- * @returns {{ status: 'running'|'done'|'error'|'not_found', output?: string, error?: string }}
+ * @returns {{ status: 'running'|'done'|'error'|'not_found', percent?: number|null, result?: object, error?: string }}
  */
 export function getScanStatus(jobId) {
 	const job = jobs.get(jobId);
 	if (!job) return { status: 'not_found' };
 	if (job.status === 'error') return { status: 'error', error: job.error };
 	if (job.status === 'running') return { status: 'running', percent: job.percent };
-	jobs.delete(jobId);
-	return { status: 'done', output: job.output };
+	return { status: 'done', result: job.result };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { startScan } from '$lib/server/zap.js';
 import { insertScanJob } from '$lib/server/db.js';
+import { finalizeZap } from '$lib/server/scanFinalize.js';
 import { canUpload } from '$lib/server/permissions.js';
 
 export async function POST({ request, locals }) {
@@ -26,13 +27,21 @@ export async function POST({ request, locals }) {
 	}
 
 	try {
-		const jobId = startScan(trimmed);
+		// The scan_jobs row is inserted after startScan returns its id, so the
+		// finalizer waits for it — a scan that fails instantly would otherwise
+		// update a row that doesn't exist yet and leave it stuck at "running".
+		let markRowReady;
+		const rowReady = new Promise((resolve) => (markRowReady = resolve));
+		const jobId = startScan(trimmed, async (id, outcome) => {
+			await rowReady;
+			return finalizeZap(id, outcome);
+		});
 		await insertScanJob({
 			tool: 'zap',
 			target: trimmed,
 			externalId: jobId,
 			createdBy: locals.user?.email ?? locals.user?.name ?? null
-		});
+		}).finally(markRowReady);
 		return json({ jobId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

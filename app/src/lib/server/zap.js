@@ -70,9 +70,11 @@ function splitTargets(targets) {
  * target URLs (run sequentially), then fetch the resulting alerts. Runs in
  * the background; poll with getScanStatus(jobId).
  * @param {string} targetUrls one URL, or several separated by commas/newlines
+ * @param {(jobId: string, outcome: { alerts: object[]|null, error: string|null }) => Promise<{ ok: boolean, result?: object, error?: string }>} onFinish
+ *   persists the outcome; the job stays "running" (phase "importing") until it resolves
  * @returns {string} jobId
  */
-export function startScan(targetUrls) {
+export function startScan(targetUrls, onFinish) {
 	const urlList = splitTargets(targetUrls);
 	if (urlList.length === 0) {
 		throw new Error('ต้องระบุ URL อย่างน้อย 1 รายการ');
@@ -109,6 +111,10 @@ export function startScan(targetUrls) {
 			// cap and killed ZAP mid-scan. 3 keeps DOM XSS checks within budget.
 			// Set every scan since the option resets when the container is recreated.
 			await zapGet('/JSON/ascan/action/setOptionThreadPerHost/', { Integer: '3' });
+			// A single rule (seen with DOM XSS) could hang for 40+ minutes and
+			// take ZAP down with it. Cap each rule so ZAP skips a stuck one and
+			// carries on with the rest of the scan.
+			await zapGet('/JSON/ascan/action/setOptionMaxRuleDurationInMins/', { Integer: '10' });
 
 			const allAlerts = [];
 			for (const [i, targetUrl] of urlList.entries()) {
@@ -134,10 +140,19 @@ export function startScan(targetUrls) {
 				allAlerts.push(...alerts);
 			}
 			job.alerts = allAlerts;
-			job.status = 'done';
 		} catch (err) {
-			job.status = 'error';
 			job.error = err instanceof Error ? err.message : String(err);
+		}
+
+		job.phase = 'importing';
+		const outcome = await onFinish(jobId, { alerts: job.alerts, error: job.error });
+		job.alerts = null;
+		if (outcome.ok) {
+			job.result = outcome.result;
+			job.status = 'done';
+		} else {
+			job.error = outcome.error;
+			job.status = 'error';
 		}
 	})();
 
@@ -146,7 +161,7 @@ export function startScan(targetUrls) {
 
 /**
  * @param {string} jobId
- * @returns {{ status: 'running'|'done'|'error'|'not_found', phase?: string, progress?: string, alerts?: object|null, error?: string }}
+ * @returns {{ status: 'running'|'done'|'error'|'not_found', phase?: string, progress?: string, percent?: number, result?: object, error?: string }}
  */
 export function getScanStatus(jobId) {
 	const job = jobs.get(jobId);
@@ -154,8 +169,7 @@ export function getScanStatus(jobId) {
 	if (job.status === 'running')
 		return { status: 'running', phase: job.phase, progress: job.progress, percent: job.percent };
 	if (job.status === 'error') return { status: 'error', error: job.error };
-	jobs.delete(jobId);
-	return { status: 'done', alerts: job.alerts };
+	return { status: 'done', result: job.result };
 }
 
 /**

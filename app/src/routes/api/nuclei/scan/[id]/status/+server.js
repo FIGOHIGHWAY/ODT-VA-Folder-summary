@@ -1,16 +1,15 @@
 import { json } from '@sveltejs/kit';
 import { getScanStatus } from '$lib/server/nuclei.js';
-import { parseAndInsertNuclei } from '$lib/server/importReport.js';
-import { updateScanJobByExternalId } from '$lib/server/db.js';
 import { canUpload } from '$lib/server/permissions.js';
 
+// Reporting only: results are imported and scan_jobs updated server-side the
+// moment a scan settles (see lib/server/scanFinalize.js), not by this poll.
 export async function GET({ params, locals }) {
 	if (!canUpload(locals.user?.role ?? 'user')) {
 		return json({ error: 'ไม่มีสิทธิ์เข้าถึง' }, { status: 403 });
 	}
 
-	const jobId = params.id;
-	const job = getScanStatus(jobId);
+	const job = getScanStatus(params.id);
 
 	if (job.status === 'not_found') {
 		return json({ error: 'ไม่พบงานสแกนนี้' }, { status: 404 });
@@ -19,20 +18,7 @@ export async function GET({ params, locals }) {
 		return json({ status: 'running', percent: job.percent, imported: false });
 	}
 	if (job.status === 'error') {
-		await updateScanJobByExternalId('nuclei', jobId, { status: 'error', errorMessage: job.error });
 		return json({ status: 'error', imported: false, error: job.error });
 	}
-
-	try {
-		const result = await parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, job.output);
-		await updateScanJobByExternalId('nuclei', jobId, {
-			status: 'done',
-			reportId: result.reportId ?? result.existingReportId ?? null
-		});
-		return json({ status: 'done', imported: true, ...result });
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		await updateScanJobByExternalId('nuclei', jobId, { status: 'error', errorMessage: message });
-		return json({ error: message }, { status: 502 });
-	}
+	return json({ status: 'done', imported: true, ...job.result });
 }

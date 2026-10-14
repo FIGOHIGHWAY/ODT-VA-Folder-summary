@@ -173,7 +173,8 @@
 	const ZAP_PHASE_LABEL = {
 		spider: 'กำลัง crawl หน้าเว็บ (spider)',
 		'active-scan': 'กำลังสแกนหาช่องโหว่ (active scan)',
-		'fetching-alerts': 'กำลังดึงผลลัพธ์'
+		'fetching-alerts': 'กำลังดึงผลลัพธ์',
+		importing: 'กำลังบันทึกผลเข้าระบบ'
 	};
 
 	async function pollZapScan(jobId) {
