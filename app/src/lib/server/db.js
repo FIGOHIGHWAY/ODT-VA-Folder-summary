@@ -335,6 +335,38 @@ export async function getTopDomainsByFindingCount(limit = 5) {
 }
 
 /**
+ * Most frequently found vulnerabilities, grouped by title (ignoring case and
+ * punctuation, since tools spell e.g. "Cross-site scripting" differently),
+ * scoped to each
+ * domain's latest scan round. `severity` narrows to one level; omitted, it
+ * covers everything except info (which would otherwise crowd out the list).
+ * @param {{ severity?: string|null, limit?: number }} [opts]
+ * @returns {Promise<Array<{ title: string, severity: string, count: number,
+ *   domains: number, tools: string[] }>>}
+ */
+export async function getTopVulnerabilities({ severity = null, limit = 10 } = {}) {
+	const { rows } = await pool.query(
+		`${LATEST_ROUND_REPORTS_CTE}
+		 SELECT
+		   MODE() WITHIN GROUP (ORDER BY f.title) AS title,
+		   (ARRAY_AGG(f.severity ORDER BY
+		     ARRAY_POSITION(ARRAY['critical','high','medium','low','info'], f.severity)))[1] AS severity,
+		   COUNT(*)::int AS count,
+		   COUNT(DISTINCT COALESCE(r.domain, 'unknown'))::int AS domains,
+		   ARRAY_AGG(DISTINCT f.source_tool) AS tools
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 WHERE r.id IN (SELECT id FROM latest_round_reports)
+		   AND (CASE WHEN $1::text IS NULL THEN f.severity <> 'info' ELSE f.severity = $1 END)
+		 GROUP BY TRIM(REGEXP_REPLACE(LOWER(f.title), '[[:space:][:punct:]]+', ' ', 'g'))
+		 ORDER BY count DESC, domains DESC, title
+		 LIMIT $2`,
+		[severity, limit]
+	);
+	return rows;
+}
+
+/**
  * Domain breakdown for a single severity — how many findings of that
  * severity each domain has, most first, scoped to each domain's latest scan
  * round. Powers the dashboard's drill-down from a severity total to "which

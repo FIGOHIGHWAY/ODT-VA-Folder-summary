@@ -53,6 +53,30 @@
 	);
 
 	const maxYearTotal = $derived(Math.max(1, ...data.yearly.map((y) => y.total)));
+
+	const TOOL_LABEL = { nessus: 'Nessus', zap: 'ZAP', burp: 'Burp', openvas: 'OpenVAS', nuclei: 'Nuclei' };
+
+	/** '' = every severity except info */
+	let topVulnSeverity = $state('');
+	let topVulnLoading = $state(false);
+	let topVulns = $state(data.topVulns ?? []);
+
+	async function selectTopVulnSeverity(severity) {
+		if (severity === topVulnSeverity) return;
+		topVulnSeverity = severity;
+		topVulnLoading = true;
+		try {
+			const qs = severity ? `?severity=${severity}` : '';
+			const res = await fetch(`/api/dashboard/top-vulns${qs}`);
+			const body = await res.json();
+			// ignore a stale response if the user already switched again
+			if (topVulnSeverity === severity) topVulns = body.vulns ?? [];
+		} finally {
+			if (topVulnSeverity === severity) topVulnLoading = false;
+		}
+	}
+
+	const maxTopVulnCount = $derived(Math.max(1, ...topVulns.map((v) => v.count)));
 </script>
 
 <svelte:head>
@@ -136,6 +160,59 @@
 						</tbody>
 					</table>
 				</div>
+			{/if}
+		</div>
+
+		<div class="panel">
+			<div class="chart-head">
+				<h2>Top 10 ช่องโหว่ที่พบบ่อยที่สุด (รอบล่าสุด)</h2>
+			</div>
+			<div class="chip-row">
+				<button
+					type="button"
+					class="chip"
+					class:active={topVulnSeverity === ''}
+					onclick={() => selectTopVulnSeverity('')}>ทุกระดับ (ไม่รวม Info)</button
+				>
+				{#each SEVERITY_ORDER as sev}
+					<button
+						type="button"
+						class="chip"
+						class:active={topVulnSeverity === sev}
+						onclick={() => selectTopVulnSeverity(sev)}>{SEVERITY_LABEL[sev]}</button
+					>
+				{/each}
+			</div>
+
+			{#if topVulnLoading}
+				<div class="empty">กำลังโหลด...</div>
+			{:else if topVulns.length === 0}
+				<div class="empty">ไม่พบช่องโหว่ในระดับนี้</div>
+			{:else}
+				<ol class="topvuln-list">
+					{#each topVulns as v, i (v.title)}
+						<li class="topvuln-row">
+							<span class="topvuln-rank mono">{i + 1}</span>
+							<div class="topvuln-body">
+								<div class="topvuln-title">
+									<span class="sev {v.severity}">{SEVERITY_LABEL[v.severity]}</span>
+									<span>{v.title}</span>
+								</div>
+								<div class="hbar-track topvuln-track">
+									<div
+										class="hbar-fill sev-fill-{v.severity}"
+										style="width:{(v.count / maxTopVulnCount) * 100}%"
+									></div>
+								</div>
+								<div class="topvuln-meta">
+									พบใน <strong class="mono">{v.domains}</strong> domain ·
+									{v.tools.map((t) => TOOL_LABEL[t] ?? t).join(', ')}
+								</div>
+							</div>
+							<span class="topvuln-count mono">{v.count}</span>
+						</li>
+					{/each}
+				</ol>
 			{/if}
 		</div>
 
@@ -554,5 +631,77 @@
 		white-space: nowrap;
 		pointer-events: none;
 		z-index: 10;
+	}
+	/* top 10 vulnerabilities */
+	.chip-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+	}
+	.chip {
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 0.25rem 0.75rem;
+		font: inherit;
+		font-size: 0.78rem;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.chip:hover {
+		border-color: var(--accent);
+	}
+	.chip.active {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #fff;
+	}
+	.topvuln-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+	}
+	.topvuln-row {
+		display: grid;
+		grid-template-columns: 1.75rem 1fr auto;
+		gap: 0.75rem;
+		align-items: start;
+	}
+	.topvuln-rank {
+		font-weight: 700;
+		color: var(--muted);
+		text-align: right;
+		padding-top: 0.1rem;
+	}
+	.topvuln-body {
+		min-width: 0;
+	}
+	.topvuln-title {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		font-size: 0.88rem;
+		overflow-wrap: anywhere;
+	}
+	.topvuln-title .sev {
+		flex-shrink: 0;
+		font-size: 0.7rem;
+	}
+	.topvuln-track {
+		height: 8px;
+		margin: 0.35rem 0 0.25rem;
+	}
+	.topvuln-meta {
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.topvuln-count {
+		font-size: 1.05rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
 	}
 </style>
