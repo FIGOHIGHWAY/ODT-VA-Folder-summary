@@ -1,6 +1,9 @@
 <script>
 	import { goto } from '$app/navigation';
 	import FindingDetail from '$lib/FindingDetail.svelte';
+	import TriageBadge from '$lib/TriageBadge.svelte';
+	import TriagePanel from '$lib/TriagePanel.svelte';
+	import { needsReviewReason } from '$lib/triage.js';
 
 	let { data } = $props();
 
@@ -13,6 +16,31 @@
 		else next.add(id);
 		expanded = next;
 	}
+
+	/** triage decisions made on this page, keyed by `${domain}|${title_key}` */
+	let triageUpdates = $state({});
+
+	const findings = $derived(
+		data.findings.map((f) => {
+			const update = triageUpdates[`${f.triage_domain}|${f.title_key}`];
+			return update ? { ...f, ...update } : f;
+		})
+	);
+
+	function applyTriage({ domain, titleKey, triage }) {
+		triageUpdates = { ...triageUpdates, [`${domain}|${titleKey}`]: triage };
+	}
+
+	const FILTERS = [
+		{ key: 'all', label: 'ทั้งหมด', match: () => true },
+		{ key: 'unreviewed', label: 'ยังไม่ตรวจ', match: (f) => !f.triage_status },
+		{ key: 'review', label: '⚠ ควรตรวจซ้ำ', match: (f) => needsReviewReason(f) !== null },
+		{ key: 'false_positive', label: 'False Positive', match: (f) => f.triage_status === 'false_positive' }
+	];
+	let filterKey = $state('all');
+	const visibleFindings = $derived(findings.filter(FILTERS.find((x) => x.key === filterKey).match));
+	const countFor = (key) => findings.filter(FILTERS.find((x) => x.key === key).match).length;
+	const falsePositiveCount = $derived(countFor('false_positive'));
 
 	let deleteBusy = $state(false);
 
@@ -49,8 +77,9 @@
 		<div>
 			<h1>Report #{data.reportId}</h1>
 			<p class="sub">
-				{data.findings.length} finding(s)
-				{#if data.findings.length > 0}— คลิกแถวเพื่อดูรายละเอียดแบบเต็ม{/if}
+				{findings.length - falsePositiveCount} finding(s)
+				{#if falsePositiveCount > 0}(ไม่นับ False Positive {falsePositiveCount} รายการ){/if}
+				{#if findings.length > 0}— คลิกแถวเพื่อดูรายละเอียดและบันทึกผลตรวจสอบ{/if}
 			</p>
 			<p class="meta">
 				<span class="badge">{data.meta.source_tool.toUpperCase()}</span>
@@ -143,6 +172,16 @@
 				{/if}
 			</div>
 		{:else}
+			<div class="filter-row">
+				{#each FILTERS as fl (fl.key)}
+					<button
+						type="button"
+						class="chip"
+						class:active={filterKey === fl.key}
+						onclick={() => (filterKey = fl.key)}>{fl.label} ({countFor(fl.key)})</button
+					>
+				{/each}
+			</div>
 			<div class="scroll">
 				<table>
 					<thead>
@@ -157,15 +196,20 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each data.findings as f (f.id)}
+						{#each visibleFindings as f (f.id)}
 							{@const isOpen = expanded.has(f.id)}
-							<tr class="finding-row" onclick={() => toggle(f.id)} aria-expanded={isOpen}>
+							<tr
+								class="finding-row"
+								class:is-fp={f.triage_status === 'false_positive'}
+								onclick={() => toggle(f.id)}
+								aria-expanded={isOpen}
+							>
 								<td class="caret-cell">
 									<span class="caret" class:open={isOpen}>▸</span>
 								</td>
 								<td><span class="sev {f.severity}">{f.severity}</span></td>
 								<td class="mono">{f.identifier}</td>
-								<td>{f.title}</td>
+								<td>{f.title}<TriageBadge finding={f} /></td>
 								<td class="mono" style="max-width:220px;word-break:break-word">
 									{f.affected_url_or_port ?? f.target ?? ''}
 								</td>
@@ -177,6 +221,7 @@
 							{#if isOpen}
 								<tr class="detail-row">
 									<td colspan="7">
+										<TriagePanel finding={f} canTriage={data.canTriage} onchange={applyTriage} />
 										<FindingDetail finding={f} />
 									</td>
 								</tr>
@@ -247,6 +292,30 @@
 	}
 	.finding-row {
 		cursor: pointer;
+	}
+	.finding-row.is-fp td {
+		opacity: 0.5;
+	}
+	.filter-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 0.9rem;
+	}
+	.chip {
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 0.25rem 0.75rem;
+		font: inherit;
+		font-size: 0.78rem;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.chip.active {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #fff;
 	}
 	.finding-row:hover td {
 		background: rgba(37, 99, 235, 0.06);

@@ -2,19 +2,21 @@ import { error } from '@sveltejs/kit';
 import { listFindingsForReport, getReportMeta } from '$lib/server/db.js';
 import { buildNetworkSummary } from '$lib/server/cidr.js';
 import { findingsToPdf } from '$lib/server/pdf.js';
+import { withoutFalsePositives } from '$lib/triage.js';
 
 export async function GET({ params }) {
 	const reportId = Number(params.id);
 	if (!Number.isInteger(reportId)) {
 		throw error(400, 'invalid report id');
 	}
-	const [findings, meta] = await Promise.all([
+	const [allFindings, meta] = await Promise.all([
 		listFindingsForReport(reportId),
 		getReportMeta(reportId)
 	]);
 	if (!meta) {
 		throw error(404, `ไม่พบ report #${reportId}`);
 	}
+	const findings = withoutFalsePositives(allFindings);
 	const networkSummary = meta.scan_target ? buildNetworkSummary(meta.scan_target, findings) : null;
 	const pdf = await findingsToPdf(findings, {
 		title: `VA Scan Findings — Report #${reportId}`,

@@ -4,6 +4,7 @@ import {
 	listFindingsForDomainRound,
 	listReportsForDomainRound
 } from '$lib/server/db.js';
+import { withoutFalsePositives } from '$lib/triage.js';
 
 export async function load({ params }) {
 	const resolved = await resolveShareToken(params.token);
@@ -17,5 +18,5 @@ export async function load({ params }) {
 		listReportsForDomainRound(domain, roundDate)
 	]);
 
-	return { domain, roundDate, findings, reports };
+	return { domain, roundDate, findings: withoutFalsePositives(findings), reports };
 }

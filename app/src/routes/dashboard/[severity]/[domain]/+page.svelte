@@ -1,7 +1,23 @@
 <script>
 	import FindingDetail from '$lib/FindingDetail.svelte';
+	import TriageBadge from '$lib/TriageBadge.svelte';
+	import TriagePanel from '$lib/TriagePanel.svelte';
 
 	let { data } = $props();
+
+	/** triage decisions made on this page, keyed by `${domain}|${title_key}` */
+	let triageUpdates = $state({});
+
+	const findings = $derived(
+		data.findings.map((f) => {
+			const update = triageUpdates[`${f.triage_domain}|${f.title_key}`];
+			return update ? { ...f, ...update } : f;
+		})
+	);
+
+	function applyTriage({ domain, titleKey, triage }) {
+		triageUpdates = { ...triageUpdates, [`${domain}|${titleKey}`]: triage };
+	}
 
 	/** @type {Set<number>} finding ids currently expanded to show full detail */
 	let expanded = $state(new Set());
@@ -24,10 +40,10 @@
 		<span class="sev {data.severity}">{data.severity}</span>
 		<span class="mono">{data.domain}</span>
 	</h1>
-	<p class="sub">{data.findings.length} finding(s) — คลิกแถวเพื่อดูรายละเอียดแบบเต็ม</p>
+	<p class="sub">{findings.length} finding(s) (ไม่นับ False Positive) — คลิกแถวเพื่อดูรายละเอียดและบันทึกผลตรวจสอบ</p>
 
 	<div class="panel">
-		{#if data.findings.length === 0}
+		{#if findings.length === 0}
 			<div class="empty">ไม่พบ finding</div>
 		{:else}
 			<div class="scroll">
@@ -44,14 +60,14 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each data.findings as f (f.id)}
+						{#each findings as f (f.id)}
 							{@const isOpen = expanded.has(f.id)}
-							<tr class="finding-row" onclick={() => toggle(f.id)} aria-expanded={isOpen}>
+							<tr class="finding-row" class:is-fp={f.triage_status === 'false_positive'} onclick={() => toggle(f.id)} aria-expanded={isOpen}>
 								<td class="caret-cell">
 									<span class="caret" class:open={isOpen}>▸</span>
 								</td>
 								<td class="mono">{f.identifier}</td>
-								<td>{f.title}</td>
+								<td>{f.title}<TriageBadge finding={f} /></td>
 								<td class="mono" style="max-width:220px;word-break:break-word">
 									{f.affected_url_or_port ?? f.target ?? ''}
 								</td>
@@ -72,6 +88,7 @@
 							{#if isOpen}
 								<tr class="detail-row">
 									<td colspan="7">
+										<TriagePanel finding={f} canTriage={data.canTriage} onchange={applyTriage} />
 										<FindingDetail finding={f} />
 										<div class="extra-meta">
 											<span class="detail-label">File</span>
@@ -91,6 +108,9 @@
 </div>
 
 <style>
+	.finding-row.is-fp td {
+		opacity: 0.5;
+	}
 	h1 {
 		display: flex;
 		align-items: center;

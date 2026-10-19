@@ -210,6 +210,19 @@ const LATEST_ROUND_REPORTS_CTE = `
 	)
 `;
 
+// Triage decisions apply per domain + normalized title (findings.title_key),
+// so they carry over to later scan rounds. Both fragments expect the
+// findings table aliased `f` and reports aliased `r`.
+const TRIAGE_JOIN = `LEFT JOIN finding_triage ft
+	ON ft.domain = COALESCE(r.domain, 'unknown') AND ft.title_key = f.title_key`;
+const TRIAGE_COLUMNS = `COALESCE(r.domain, 'unknown') AS triage_domain, ft.status AS triage_status, ft.reason AS triage_reason,
+	ft.decided_by AS triage_by, ft.decided_at AS triage_at`;
+// Statistics, share links and exports leave out findings marked false positive.
+const NOT_FALSE_POSITIVE = `NOT EXISTS (
+	SELECT 1 FROM finding_triage ftx
+	WHERE ftx.status = 'false_positive'
+	  AND ftx.domain = COALESCE(r.domain, 'unknown') AND ftx.title_key = f.title_key)`;
+
 /**
  * Overall counters for the dashboard: totals plus a findings-by-severity and
  * findings-by-tool breakdown, scoped to each domain's most recent scan round
@@ -228,20 +241,23 @@ export async function getDashboardSummary() {
 				`${LATEST_ROUND_REPORTS_CTE}
 				 SELECT
 					(SELECT COUNT(*) FROM latest_round_reports)::int AS total_reports,
-					(SELECT COUNT(*) FROM findings WHERE report_id IN (SELECT id FROM latest_round_reports))::int AS total_findings,
+					(SELECT COUNT(*) FROM findings f JOIN reports r ON r.id = f.report_id
+					  WHERE f.report_id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE})::int AS total_findings,
 					(SELECT COUNT(DISTINCT domain) FROM reports WHERE domain IS NOT NULL AND id IN (SELECT id FROM latest_round_reports))::int AS total_domains`
 			),
 			pool.query(
 				`${LATEST_ROUND_REPORTS_CTE}
-				 SELECT severity, COUNT(*)::int AS count FROM findings
-				 WHERE report_id IN (SELECT id FROM latest_round_reports)
-				 GROUP BY severity`
+				 SELECT f.severity, COUNT(*)::int AS count
+				 FROM findings f JOIN reports r ON r.id = f.report_id
+				 WHERE f.report_id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
+				 GROUP BY f.severity`
 			),
 			pool.query(
 				`${LATEST_ROUND_REPORTS_CTE}
-				 SELECT source_tool, COUNT(*)::int AS count FROM findings
-				 WHERE report_id IN (SELECT id FROM latest_round_reports)
-				 GROUP BY source_tool`
+				 SELECT f.source_tool, COUNT(*)::int AS count
+				 FROM findings f JOIN reports r ON r.id = f.report_id
+				 WHERE f.report_id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
+				 GROUP BY f.source_tool`
 			),
 			pool.query(
 				`${LATEST_ROUND_REPORTS_CTE}
@@ -282,7 +298,7 @@ export async function getYearlyBreakdown() {
 		        f.severity, COUNT(*)::int AS count
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
-		 WHERE f.report_id IN (SELECT id FROM latest_round_reports)
+		 WHERE f.report_id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
 		 GROUP BY year, f.severity
 		 ORDER BY year`
 	);
@@ -325,7 +341,7 @@ export async function getTopDomainsByFindingCount(limit = 5) {
 		   COUNT(*) FILTER (WHERE f.severity = 'high')::int AS high
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
-		 WHERE r.id IN (SELECT id FROM latest_round_reports)
+		 WHERE r.id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
 		 GROUP BY domain
 		 ORDER BY count DESC, domain
 		 LIMIT $1`,
@@ -356,9 +372,9 @@ export async function getTopVulnerabilities({ severity = null, limit = 10 } = {}
 		   ARRAY_AGG(DISTINCT f.source_tool) AS tools
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
-		 WHERE r.id IN (SELECT id FROM latest_round_reports)
+		 WHERE r.id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
 		   AND (CASE WHEN $1::text IS NULL THEN f.severity <> 'info' ELSE f.severity = $1 END)
-		 GROUP BY TRIM(REGEXP_REPLACE(LOWER(f.title), '[[:space:][:punct:]]+', ' ', 'g'))
+		 GROUP BY f.title_key
 		 ORDER BY count DESC, domains DESC, title
 		 LIMIT $2`,
 		[severity, limit]
@@ -381,6 +397,7 @@ export async function getDomainCountsBySeverity(severity) {
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
 		 WHERE f.severity = $1 AND r.id IN (SELECT id FROM latest_round_reports)
+		   AND ${NOT_FALSE_POSITIVE}
 		 GROUP BY domain
 		 ORDER BY count DESC, domain`,
 		[severity]
@@ -398,11 +415,12 @@ export async function getDomainCountsBySeverity(severity) {
 export async function listFindingsBySeverityAndDomain(severity, domain) {
 	const { rows } = await pool.query(
 		`${LATEST_ROUND_REPORTS_CTE}
-		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at, ${TRIAGE_COLUMNS}
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
 		 WHERE f.severity = $1 AND COALESCE(r.domain, 'unknown') = $2
-		   AND r.id IN (SELECT id FROM latest_round_reports)
+		   AND r.id IN (SELECT id FROM latest_round_reports) AND ${NOT_FALSE_POSITIVE}
 		 ORDER BY r.imported_at DESC, f.id`,
 		[severity, domain]
 	);
@@ -424,9 +442,10 @@ export async function searchFindings(query, limit = 200) {
 	const { rows } = await pool.query(
 		`SELECT f.id, f.report_id, f.source_tool, f.target, f.identifier, f.title, f.severity,
 		        f.description, f.solution, f.cvss_score, f.cve, f.affected_url_or_port,
-		        f.confidence, f.raw_evidence, r.domain, r.original_filename
+		        f.confidence, f.raw_evidence, r.domain, r.original_filename, ${TRIAGE_COLUMNS}
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
 		 WHERE f.title ILIKE $1
 		    OR f.identifier ILIKE $1
 		    OR f.description ILIKE $1
@@ -602,9 +621,10 @@ export async function listReportsForDomain(domain) {
  */
 export async function listFindingsForDomain(domain) {
 	const { rows } = await pool.query(
-		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at, ${TRIAGE_COLUMNS}
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
 		 WHERE r.domain = $1
 		 ORDER BY
 		   CASE f.severity
@@ -648,9 +668,10 @@ export async function listReportsForDomainRound(domain, roundDate) {
 export async function listFindingsForDomainRound(domain, roundDate) {
 	if (roundDate === null) return listFindingsForDomain(domain);
 	const { rows } = await pool.query(
-		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		`SELECT f.*, r.original_filename, r.imported_at AS report_imported_at, ${TRIAGE_COLUMNS}
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
 		 WHERE r.domain = $1 AND COALESCE(r.scanned_at, r.imported_at)::date = $2
 		 ORDER BY
 		   CASE f.severity
@@ -675,9 +696,10 @@ export async function listFindingsForLatestRound(domain) {
 		`WITH latest_date AS (
 			SELECT MAX(imported_at::date) AS d FROM reports WHERE domain = $1
 		 )
-		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at
+		 SELECT f.*, r.original_filename, r.imported_at AS report_imported_at, ${TRIAGE_COLUMNS}
 		 FROM findings f
 		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
 		 WHERE r.domain = $1 AND r.imported_at::date = (SELECT d FROM latest_date)
 		 ORDER BY
 		   CASE f.severity
@@ -849,11 +871,15 @@ export async function getReportMeta(reportId) {
 
 export async function listFindingsForReport(reportId) {
 	const { rows } = await pool.query(
-		`SELECT * FROM findings WHERE report_id = $1 ORDER BY
-		 CASE severity
+		`SELECT f.*, ${TRIAGE_COLUMNS}
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
+		 WHERE f.report_id = $1 ORDER BY
+		 CASE f.severity
 		   WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
 		   WHEN 'low' THEN 3 ELSE 4
-		 END, id`,
+		 END, f.id`,
 		[reportId]
 	);
 	return rows;
@@ -966,4 +992,30 @@ export async function createIpGroup({ name, targets, createdBy = null }) {
 /** @param {number} id */
 export async function deleteIpGroup(id) {
 	await pool.query(`DELETE FROM ip_groups WHERE id = $1`, [id]);
+}
+
+export const TRIAGE_STATUSES = ['confirmed', 'false_positive', 'accepted_risk'];
+
+/**
+ * Record a triage decision for every finding with this normalized title on
+ * this domain — current and future scan rounds alike.
+ * @param {{ domain: string, titleKey: string, status: string, reason?: string|null, decidedBy?: string|null }} input
+ */
+export async function setFindingTriage({ domain, titleKey, status, reason = null, decidedBy = null }) {
+	const { rows } = await pool.query(
+		`INSERT INTO finding_triage (domain, title_key, status, reason, decided_by, decided_at)
+		 VALUES ($1, $2, $3, $4, $5, now())
+		 ON CONFLICT (domain, title_key) DO UPDATE
+		   SET status = EXCLUDED.status, reason = EXCLUDED.reason,
+		       decided_by = EXCLUDED.decided_by, decided_at = now()
+		 RETURNING status AS triage_status, reason AS triage_reason,
+		           decided_by AS triage_by, decided_at AS triage_at`,
+		[domain, titleKey, status, reason, decidedBy]
+	);
+	return rows[0];
+}
+
+/** Undo a triage decision, returning those findings to "not yet reviewed". */
+export async function clearFindingTriage(domain, titleKey) {
+	await pool.query(`DELETE FROM finding_triage WHERE domain = $1 AND title_key = $2`, [domain, titleKey]);
 }

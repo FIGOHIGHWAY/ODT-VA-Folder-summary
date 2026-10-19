@@ -1,10 +1,11 @@
 import { error } from '@sveltejs/kit';
 import { listFindingsForLatestRound } from '$lib/server/db.js';
 import { findingsToPdf } from '$lib/server/pdf.js';
+import { withoutFalsePositives } from '$lib/triage.js';
 
 export async function GET({ params }) {
 	const domain = params.domain;
-	const findings = await listFindingsForLatestRound(domain);
+	const findings = withoutFalsePositives(await listFindingsForLatestRound(domain));
 	if (findings.length === 0) {
 		throw error(404, `ไม่พบ finding ของ domain "${domain}"`);
 	}

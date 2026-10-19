@@ -5,6 +5,7 @@ import {
 	getSetting,
 	getUserAiKey
 } from '$lib/server/db.js';
+import { withoutFalsePositives } from '$lib/triage.js';
 import { summarizeFindings, AI_PROMPT_SETTING_KEY } from '$lib/server/ai.js';
 
 export async function POST({ request, locals }) {
@@ -26,7 +27,7 @@ export async function POST({ request, locals }) {
 		return json({ error: 'ต้องระบุ domain' }, { status: 400 });
 	}
 
-	const findings = await listFindingsForLatestRound(domain);
+	const findings = withoutFalsePositives(await listFindingsForLatestRound(domain));
 	if (findings.length === 0) {
 		return json({ error: `ไม่พบ finding ของ domain "${domain}"` }, { status: 404 });
 	}

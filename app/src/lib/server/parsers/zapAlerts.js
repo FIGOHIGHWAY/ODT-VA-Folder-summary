@@ -33,6 +33,7 @@ export function parseZapAlerts(alerts, sourceLabel = 'zap scan') {
 			cvss_score: null,
 			cve: null,
 			affected_url_or_port: a.url ?? '',
+			confidence: a.confidence ?? null,
 			raw_evidence: JSON.stringify(a, null, 2)
 		};
 	});
