@@ -1,7 +1,44 @@
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
+import { groupFindingsByTitle } from './groupFindings.js';
 
-const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+const TOOL_LABEL = { nessus: 'Nessus', zap: 'ZAP', burp: 'Burp', openvas: 'OpenVAS', nuclei: 'Nuclei' };
+
+/** Affected targets listed per row before collapsing the rest into "และอีก N". */
+const MAX_TARGETS_PER_ROW = 5;
+const MAX_SOLUTION_CHARS = 700;
+const SEVERITY_COLOR = { critical: '#b91c1c', high: '#ea580c', medium: '#ca8a04', low: '#2563eb', info: '#6b7280' };
+
+function plainText(text) {
+	const flat = String(text ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+	return flat.length > MAX_SOLUTION_CHARS ? `${flat.slice(0, MAX_SOLUTION_CHARS)}…` : flat;
+}
+
+/** Show percent-encoded (e.g. Thai) URLs as readable text; leave malformed ones as-is. */
+function readableUrl(url) {
+	try {
+		return decodeURI(url);
+	} catch {
+		return url;
+	}
+}
+
+/** Cell texts for one grouped vulnerability row. */
+function groupCells(g) {
+	const tools = g.source_tools.map((t) => TOOL_LABEL[t] ?? t).join(', ');
+	const shown = g.targets.slice(0, MAX_TARGETS_PER_ROW).map(readableUrl);
+	const hidden = g.targets.length - shown.length;
+	return {
+		severity: g.severity,
+		title: `${g.title}\nพบ ${g.count} จุด ใน ${g.targets.length} URL/host${tools ? ` · ${tools}` : ''}`,
+		targets: shown.length
+			? shown.join('\n') + (hidden > 0 ? `\n…และอีก ${hidden} รายการ` : '')
+			: '—',
+		cve: g.cves.length ? g.cves.join(', ') : '—',
+		cvss_score: g.cvss_score ?? '—',
+		solution: plainText(g.solution) || '—'
+	};
+}
 
 // pdfkit's built-in fonts (Helvetica etc.) have no Thai glyphs, so Thai text
 // renders as mojibake. Sarabun covers both Thai and Latin. The Dockerfile
@@ -12,11 +49,12 @@ const FONT_REGULAR = path.join(FONT_DIR, 'Sarabun-Regular.ttf');
 const FONT_BOLD = path.join(FONT_DIR, 'Sarabun-Bold.ttf');
 
 /**
- * Render findings as a PDF report (Buffer) — one row per finding, most
- * severe first, grouped visually by a title header. When `networkSummary`
- * is given (a multi-host/CIDR scan), a per-network breakdown table is drawn
- * first, and an all-clear message replaces the finding table when there are
- * no findings at all rather than leaving an empty page.
+ * Render findings as a PDF report (Buffer) — one row per vulnerability
+ * (findings sharing a title are merged, listing every affected target),
+ * most severe first. When `networkSummary` is given (a multi-host/CIDR
+ * scan), a per-network breakdown table is drawn first, and an all-clear
+ * message replaces the finding table when there are no findings at all
+ * rather than leaving an empty page.
  * @param {Array<object>} findings
  * @param {{ title: string, subtitle?: string, networkSummary?: { networks: Array<{ block: string, ipCount: number, vulnerableCount: number }>, totalIps: number, totalVulnerable: number } | null }} params
  * @returns {Promise<Buffer>}
@@ -61,17 +99,19 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 			return;
 		}
 
-		const sorted = [...findings].sort(
-			(a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)
+		const groups = groupFindingsByTitle(findings);
+		doc.font('Body').fontSize(10).text(
+			`ช่องโหว่ ${groups.length} หัวข้อ (พบรวม ${findings.length} จุด) — รวมรายการที่ชื่อเดียวกันไว้ในแถวเดียว`
 		);
+		doc.moveDown(0.5);
 
 		const columns = [
-			{ key: 'severity', label: 'Severity', width: 60 },
-			{ key: 'title', label: 'Title', width: 200 },
-			{ key: 'target', label: 'Target', width: 130 },
-			{ key: 'cve', label: 'CVE', width: 80 },
-			{ key: 'cvss_score', label: 'CVSS', width: 40 },
-			{ key: 'solution', label: 'Solution', width: 220 }
+			{ key: 'severity', label: 'Severity', width: 55 },
+			{ key: 'title', label: 'Vulnerability', width: 190 },
+			{ key: 'targets', label: 'Affected targets', width: 210 },
+			{ key: 'cve', label: 'CVE', width: 85 },
+			{ key: 'cvss_score', label: 'CVSS', width: 35 },
+			{ key: 'solution', label: 'Solution', width: 195 }
 		];
 
 		const startX = doc.page.margins.left;
@@ -93,8 +133,9 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 
 		drawHeader();
 
-		for (const f of sorted) {
-			const cellTexts = columns.map((col) => String(f[col.key] ?? '—'));
+		for (const g of groups) {
+			const cells = groupCells(g);
+			const cellTexts = columns.map((col) => String(cells[col.key]));
 			const rowHeight =
 				Math.max(
 					...cellTexts.map((t, i) =>
@@ -110,10 +151,14 @@ export function findingsToPdf(findings, { title, subtitle, networkSummary = null
 
 			let x = startX;
 			for (let i = 0; i < columns.length; i++) {
+				const isSeverity = columns[i].key === 'severity';
+				if (isSeverity) doc.font('Body-Bold').fillColor(SEVERITY_COLOR[g.severity] ?? '#000000');
 				doc.text(cellTexts[i], x, y, { width: columns[i].width, ellipsis: true });
+				if (isSeverity) doc.font('Body').fillColor('#000000');
 				x += columns[i].width;
 			}
 			y += rowHeight;
+			doc.moveTo(startX, y - 3).lineTo(startX + tableWidth, y - 3).strokeColor('#eeeeee').stroke();
 		}
 
 		doc.end();
