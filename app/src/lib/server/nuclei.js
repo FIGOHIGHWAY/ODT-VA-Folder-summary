@@ -53,9 +53,13 @@ export function startScan(targets, cveId, onFinish) {
 	// to stderr every -si seconds, alongside the -jsonl results on stdout.
 	const targetArgs = targetList.map((t) => `-u ${shellQuote(t)}`).join(' ');
 	const statsArgs = '-stats -stats-json -si 5';
+	// -duc disables the per-run template update check: the Nuclei VM can't
+	// finish downloading the template zip from GitHub (it times out), and
+	// without this every scan stalls on that failed update first.
+	const baseArgs = `-jsonl -silent -duc ${statsArgs}`;
 	const remoteCmd = cveId
-		? `nuclei ${targetArgs} -id ${shellQuote(cveId.toUpperCase())} -jsonl -silent ${statsArgs}`
-		: `nuclei ${targetArgs} -jsonl -silent ${statsArgs}`;
+		? `nuclei ${targetArgs} -id ${shellQuote(cveId.toUpperCase())} ${baseArgs}`
+		: `nuclei ${targetArgs} ${baseArgs}`;
 	const ssh = spawn(
 		'ssh',
 		[
