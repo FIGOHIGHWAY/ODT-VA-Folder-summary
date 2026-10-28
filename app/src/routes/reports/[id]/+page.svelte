@@ -3,7 +3,11 @@
 	import FindingDetail from '$lib/FindingDetail.svelte';
 	import TriageBadge from '$lib/TriageBadge.svelte';
 	import TriagePanel from '$lib/TriagePanel.svelte';
+	import HostLabel from '$lib/HostLabel.svelte';
+	import { buildHostIndex } from '$lib/hostRegistry.js';
 	import { needsReviewReason } from '$lib/triage.js';
+
+	const hostIndex = $derived(buildHostIndex(data.hosts ?? []));
 
 	let { data } = $props();
 
@@ -210,8 +214,8 @@
 								<td><span class="sev {f.severity}">{f.severity}</span></td>
 								<td class="mono">{f.identifier}</td>
 								<td>{f.title}<TriageBadge finding={f} /></td>
-								<td class="mono" style="max-width:220px;word-break:break-word">
-									{f.affected_url_or_port ?? f.target ?? ''}
+								<td class="mono" style="max-width:260px;word-break:break-word">
+									{f.affected_url_or_port ?? f.target ?? ''}<HostLabel finding={f} index={hostIndex} />
 								</td>
 								<td class="mono" style="font-variant-numeric:tabular-nums">
 									{f.cvss_score ?? '—'}

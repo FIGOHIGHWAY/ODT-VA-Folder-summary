@@ -1,10 +1,14 @@
 <script>
 	import FindingDetail from '$lib/FindingDetail.svelte';
 	import TriageBadge from '$lib/TriageBadge.svelte';
+	import HostLabel from '$lib/HostLabel.svelte';
+	import { buildHostIndex } from '$lib/hostRegistry.js';
 
 	let { data } = $props();
 
 	let q = $state(data.q ?? '');
+
+	const hostIndex = $derived(buildHostIndex(data.hosts ?? []));
 
 	/** @type {Set<number>} finding ids currently expanded to show full detail */
 	let expanded = $state(new Set());

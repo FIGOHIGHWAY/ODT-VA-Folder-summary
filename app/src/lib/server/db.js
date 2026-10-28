@@ -994,6 +994,37 @@ export async function deleteIpGroup(id) {
 	await pool.query(`DELETE FROM ip_groups WHERE id = $1`, [id]);
 }
 
+/** Every host-registry entry, for the management page and for annotating findings. */
+export async function listHostRegistry() {
+	const { rows } = await pool.query(
+		`SELECT id, ip, hostname, label, note, created_by, created_at, updated_at
+		 FROM host_registry ORDER BY hostname NULLS LAST, ip`
+	);
+	return rows;
+}
+
+/**
+ * Add or update a host entry, keyed by IP (one physical server = one IP).
+ * Re-saving an existing IP updates its hostname/label/note.
+ * @param {{ ip: string, hostname?: string|null, label: string, note?: string|null, savedBy?: string|null }} input
+ */
+export async function upsertHostEntry({ ip, hostname = null, label, note = null, savedBy = null }) {
+	const { rows } = await pool.query(
+		`INSERT INTO host_registry (ip, hostname, label, note, created_by)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (ip) DO UPDATE
+		   SET hostname = EXCLUDED.hostname, label = EXCLUDED.label,
+		       note = EXCLUDED.note, updated_at = now()
+		 RETURNING id`,
+		[ip, hostname, label, note, savedBy]
+	);
+	return rows[0].id;
+}
+
+export async function deleteHostEntry(id) {
+	await pool.query(`DELETE FROM host_registry WHERE id = $1`, [id]);
+}
+
 export const TRIAGE_STATUSES = ['confirmed', 'false_positive', 'accepted_risk'];
 
 /**
