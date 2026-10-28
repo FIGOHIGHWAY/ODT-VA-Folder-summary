@@ -143,7 +143,27 @@ export function startScan(targetUrls, hostHeader, onFinish) {
 
 				job.phase = 'active-scan';
 				job.percent = 0;
-				const { scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl });
+				let ascanId;
+				try {
+					({ scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl }));
+				} catch (err) {
+					// ZAP replies URL_NOT_FOUND when the spider found no page to scan at
+					// this target — almost always a mistyped URL or a host ZAP can't
+					// reach. Surface that instead of the raw API error.
+					if (/URL_NOT_FOUND/i.test(err instanceof Error ? err.message : String(err))) {
+						throw new Error(
+							`ZAP spider ไม่พบหน้าใดในเป้าหมาย "${targetUrl}" จึงเริ่ม active scan ไม่ได้ — ตรวจสอบว่า URL ถูกต้อง (เช่น .ac.th ครบ) และเข้าถึงได้`
+						);
+					}
+					throw err;
+				}
+				// A valid scan id is numeric; anything else (e.g. an error placeholder)
+				// would later surface as a cryptic "does_not_exist" when polling status.
+				if (ascanId == null || !/^\d+$/.test(String(ascanId))) {
+					throw new Error(
+						`ZAP ไม่คืนรหัส active scan ที่ใช้ได้สำหรับ "${targetUrl}" — spider อาจไม่พบหน้าใด ตรวจสอบ URL/การเข้าถึง`
+					);
+				}
 				job.currentScanType = 'ascan';
 				job.currentScanId = ascanId;
 				await waitForCompletion('/JSON/ascan/view/status/', ascanId, job);
