@@ -25,6 +25,17 @@ export function isIpv4(host) {
 }
 
 /**
+ * A safe hostname for use as a Host-header override — letters, digits, dots
+ * and hyphens only. Rejects anything that could inject into a shell command
+ * or an HTTP header (spaces, colons, CR/LF, slashes).
+ * @param {string} host
+ */
+export function isValidHostname(host) {
+	const s = String(host ?? '');
+	return s.length > 0 && s.length <= 253 && /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(s);
+}
+
+/**
  * Index registry rows for fast lookup, both by IP and by hostname (a hostname
  * may have several rows — the distinct servers that share the name).
  * @param {Array<{ ip: string, hostname?: string|null, label: string, note?: string|null }>} entries

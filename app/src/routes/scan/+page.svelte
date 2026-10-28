@@ -155,6 +155,7 @@
 	}
 
 	let zapTarget = $state('');
+	let zapHostHeader = $state('');
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
 	let zapPhase = $state('');
 	let zapProgress = $state('');
@@ -219,7 +220,7 @@
 			const res = await fetch('/api/zap/scan', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ targets })
+				body: JSON.stringify({ targets, hostHeader: zapHostHeader.trim() || undefined })
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -251,6 +252,7 @@
 
 	let nucleiTarget = $state('');
 	let nucleiCveId = $state('');
+	let nucleiHostHeader = $state('');
 	let nucleiStatus = $state('idle'); // idle | starting | running | done | error
 	let nucleiError = $state('');
 	let nucleiResult = $state(null);
@@ -304,7 +306,11 @@
 			const res = await fetch('/api/nuclei/scan', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ targets, cveId: nucleiCveId.trim() || undefined })
+				body: JSON.stringify({
+				targets,
+				cveId: nucleiCveId.trim() || undefined,
+				hostHeader: nucleiHostHeader.trim() || undefined
+			})
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -626,9 +632,17 @@
 			<input
 				type="text"
 				bind:value={zapTarget}
-				placeholder="เช่น https://example.kku.ac.th"
+				placeholder="เช่น https://example.kku.ac.th หรือ https://10.1.2.3"
 				disabled={zapStatus === 'starting' || zapStatus === 'running'}
 				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+			/>
+			<input
+				type="text"
+				bind:value={zapHostHeader}
+				placeholder="Host header (ไม่บังคับ) เช่น web.kku.ac.th"
+				title="ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header — ใช้เมื่อ IP เดียวมีหลายเว็บ"
+				disabled={zapStatus === 'starting' || zapStatus === 'running'}
+				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
 			{#if ipGroups.length > 0}
 				<select
@@ -711,6 +725,14 @@
 				type="text"
 				bind:value={nucleiCveId}
 				placeholder="CVE ID (ไม่บังคับ) เช่น CVE-2021-44228"
+				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
+				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
+			/>
+			<input
+				type="text"
+				bind:value={nucleiHostHeader}
+				placeholder="Host header (ไม่บังคับ) เช่น web.kku.ac.th"
+				title="ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header — ใช้เมื่อ IP เดียวมีหลายเว็บ"
 				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
 				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>

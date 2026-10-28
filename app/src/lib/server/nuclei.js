@@ -33,11 +33,14 @@ function splitTargets(targets) {
  * @param {string|null} [cveId] when given, only the template matching this
  *   CVE is run (nuclei-templates names CVE templates after the CVE itself)
  *   instead of the full default template set.
+ * @param {string|null} [hostHeader] when given, targets are hit at their IP
+ *   but this hostname is sent as the Host header, so the right virtual host
+ *   is scanned while each finding stays tied to the IP that was scanned.
  * @param {(jobId: string, outcome: { output: string, error: string|null }) => Promise<{ ok: boolean, result?: object, error?: string }>} onFinish
  *   persists the outcome; the job stays "running" until it resolves
  * @returns {string} jobId
  */
-export function startScan(targets, cveId, onFinish) {
+export function startScan(targets, cveId, hostHeader, onFinish) {
 	const { host, user, keyPath } = config();
 	if (cveId && !CVE_ID_PATTERN.test(cveId)) {
 		throw new Error(`รูปแบบ CVE ID ไม่ถูกต้อง: "${cveId}" (ต้องเป็นรูปแบบ CVE-YYYY-NNNN)`);
@@ -56,7 +59,9 @@ export function startScan(targets, cveId, onFinish) {
 	// -duc disables the per-run template update check: the Nuclei VM can't
 	// finish downloading the template zip from GitHub (it times out), and
 	// without this every scan stalls on that failed update first.
-	const baseArgs = `-jsonl -silent -duc ${statsArgs}`;
+	// -H sends a fixed Host header so an IP target is scanned as a named vhost.
+	const hostArg = hostHeader ? ` -H ${shellQuote(`Host: ${hostHeader}`)}` : '';
+	const baseArgs = `-jsonl -silent -duc ${statsArgs}${hostArg}`;
 	const remoteCmd = cveId
 		? `nuclei ${targetArgs} -id ${shellQuote(cveId.toUpperCase())} ${baseArgs}`
 		: `nuclei ${targetArgs} ${baseArgs}`;

@@ -74,7 +74,7 @@ function splitTargets(targets) {
  *   persists the outcome; the job stays "running" (phase "importing") until it resolves
  * @returns {string} jobId
  */
-export function startScan(targetUrls, onFinish) {
+export function startScan(targetUrls, hostHeader, onFinish) {
 	const urlList = splitTargets(targetUrls);
 	if (urlList.length === 0) {
 		throw new Error('ต้องระบุ URL อย่างน้อย 1 รายการ');
@@ -101,11 +101,25 @@ export function startScan(targetUrls, onFinish) {
 
 	(async () => {
 		const job = jobs.get(jobId);
+		// A Replacer rule (removed in the finally below) rewrites the Host header
+		// on every request so an IP target is scanned as the named vhost.
+		const replacerDesc = hostHeader ? `va-scan-host-${jobId}` : null;
 		try {
 			// ZAP keeps every request/response from every past scan in memory
 			// for the life of the daemon; across scans that grew until the VM
 			// ran out of RAM and hung. A new session discards that history.
 			await zapGet('/JSON/core/action/newSession/', { name: '', overwrite: 'true' });
+
+			if (replacerDesc) {
+				await zapGet('/JSON/replacer/action/addRule/', {
+					description: replacerDesc,
+					enabled: 'true',
+					matchType: 'REQ_HEADER',
+					matchString: 'Host',
+					matchRegex: 'false',
+					replacement: hostHeader
+				});
+			}
 			// The DOM XSS rule launches one Firefox per active-scan thread; at
 			// ZAP's default of 8 threads that blew through the container's memory
 			// cap and killed ZAP mid-scan. 3 keeps DOM XSS checks within budget.
@@ -142,6 +156,13 @@ export function startScan(targetUrls, onFinish) {
 			job.alerts = allAlerts;
 		} catch (err) {
 			job.error = err instanceof Error ? err.message : String(err);
+		} finally {
+			// Remove the Host-header rule so it never leaks into a later scan.
+			if (replacerDesc) {
+				await zapGet('/JSON/replacer/action/removeRule/', { description: replacerDesc }).catch(
+					() => {}
+				);
+			}
 		}
 
 		job.phase = 'importing';

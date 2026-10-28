@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { extractHost, isIpv4, buildHostIndex, resolveHostInfo } from './hostRegistry.js';
+import { extractHost, isIpv4, isValidHostname, buildHostIndex, resolveHostInfo } from './hostRegistry.js';
+
+describe('isValidHostname', () => {
+	it('accepts normal hostnames and rejects injection attempts', () => {
+		expect(isValidHostname('web.kku.ac.th')).toBe(true);
+		expect(isValidHostname('host-1')).toBe(true);
+		expect(isValidHostname('bad host')).toBe(false);
+		expect(isValidHostname('a;rm -rf')).toBe(false);
+		expect(isValidHostname('h\r\nX: y')).toBe(false);
+		expect(isValidHostname('')).toBe(false);
+	});
+});
 
 describe('extractHost', () => {
 	it('reads the host from a URL or a bare host', () => {
