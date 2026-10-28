@@ -5,6 +5,7 @@
 	import openvasLogo from '$lib/assets/tools/openvas-logo.svg';
 	import nucleiLogo from '$lib/assets/tools/nuclei-logo.png';
 	import zapLogo from '$lib/assets/tools/zap-logo.svg';
+	import HostResolver from '$lib/HostResolver.svelte';
 
 	let { data } = $props();
 
@@ -667,6 +668,13 @@
 				{zapStatus === 'starting' || zapStatus === 'running' ? '⏳ กำลังสแกน...' : '⚡ เริ่มสแกน'}
 			</button>
 		</div>
+		<HostResolver
+			disabled={zapStatus === 'starting' || zapStatus === 'running'}
+			onpick={(c) => {
+				zapTarget = `https://${c.ip}`;
+				zapHostHeader = c.host;
+			}}
+		/>
 
 		{#if zapStatus === 'running'}
 			<div class="status">
@@ -763,6 +771,13 @@
 					: '🎯 เริ่มสแกน'}
 			</button>
 		</div>
+		<HostResolver
+			disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
+			onpick={(c) => {
+				nucleiTarget = c.ip;
+				nucleiHostHeader = c.host;
+			}}
+		/>
 
 		{#if nucleiStatus === 'running'}
 			<div class="status">

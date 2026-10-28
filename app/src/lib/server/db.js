@@ -1050,3 +1050,12 @@ export async function setFindingTriage({ domain, titleKey, status, reason = null
 export async function clearFindingTriage(domain, titleKey) {
 	await pool.query(`DELETE FROM finding_triage WHERE domain = $1 AND title_key = $2`, [domain, titleKey]);
 }
+
+/** Registry entries for one hostname — the distinct servers that share the name. */
+export async function listHostRegistryByHostname(hostname) {
+	const { rows } = await pool.query(
+		`SELECT id, ip, hostname, label, note FROM host_registry WHERE lower(hostname) = lower($1) ORDER BY ip`,
+		[hostname]
+	);
+	return rows;
+}
