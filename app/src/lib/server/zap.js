@@ -35,6 +35,10 @@ const POLL_INTERVAL_MS = 5000;
 const STALL_LIMIT = 360; // 360 * 5s = 30 min with no progress movement
 const MAX_ATTEMPTS = 4320; // 4320 * 5s = 6 hours absolute cap
 
+// URL patterns excluded from both the spider and the active scan — static,
+// non-vulnerable noise that otherwise inflates a scan by thousands of URLs.
+const EXCLUDE_REGEXES = ['.*/_next/.*', '.*[?&]w=[0-9]+&q=[0-9]+.*'];
+
 /** @param {{ percent: number, cancelled?: boolean }} job */
 async function waitForCompletion(statusPath, scanId, job) {
 	let lastPercent = -1;
@@ -129,6 +133,16 @@ export function startScan(targetUrls, hostHeader, onFinish) {
 			// take ZAP down with it. Cap each rule so ZAP skips a stuck one and
 			// carries on with the rest of the scan.
 			await zapGet('/JSON/ascan/action/setOptionMaxRuleDurationInMins/', { Integer: '10' });
+
+			// Skip noise that is never a vulnerability but explodes the result set:
+			// Next.js build assets (/_next/…) and the image optimizer's per-size,
+			// per-quality URL variants (…&w=256&q=75), which turn one image into
+			// dozens of URLs. One kkuenterprise scan produced ~15k findings this
+			// way. Re-added every run because newSession above clears the excludes.
+			for (const regex of EXCLUDE_REGEXES) {
+				await zapGet('/JSON/spider/action/excludeFromScan/', { regex });
+				await zapGet('/JSON/ascan/action/excludeFromScan/', { regex });
+			}
 
 			const allAlerts = [];
 			for (const [i, targetUrl] of urlList.entries()) {
