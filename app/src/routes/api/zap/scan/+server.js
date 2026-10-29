@@ -3,14 +3,14 @@ import { startScan } from '$lib/server/zap.js';
 import { insertScanJob } from '$lib/server/db.js';
 import { finalizeZap } from '$lib/server/scanFinalize.js';
 import { canUpload } from '$lib/server/permissions.js';
-import { isValidHostname } from '$lib/hostRegistry.js';
+import { isIpv4 } from '$lib/hostRegistry.js';
 
 export async function POST({ request, locals }) {
 	if (!canUpload(locals.user?.role ?? 'user')) {
 		return json({ error: 'ไม่มีสิทธิ์สั่งสแกน' }, { status: 403 });
 	}
 
-	const { targets, hostHeader } = await request.json();
+	const { targets, pinIp } = await request.json();
 	const trimmed = String(targets ?? '').trim();
 	if (!trimmed) {
 		return json({ error: 'ต้องระบุ URL เป้าหมาย' }, { status: 400 });
@@ -26,9 +26,11 @@ export async function POST({ request, locals }) {
 			{ status: 400 }
 		);
 	}
-	const trimmedHost = String(hostHeader ?? '').trim().toLowerCase() || null;
-	if (trimmedHost && !isValidHostname(trimmedHost)) {
-		return json({ error: `Host header ไม่ถูกต้อง: "${trimmedHost}"` }, { status: 400 });
+	// Optional DNS pin: scan the URL by its hostname but force that hostname to
+	// resolve to this IP, so a specific server behind a shared name is scanned.
+	const trimmedPin = String(pinIp ?? '').trim() || null;
+	if (trimmedPin && !isIpv4(trimmedPin)) {
+		return json({ error: `IP สำหรับปัก DNS ไม่ถูกต้อง: "${trimmedPin}"` }, { status: 400 });
 	}
 
 	try {
@@ -37,15 +39,15 @@ export async function POST({ request, locals }) {
 		// update a row that doesn't exist yet and leave it stuck at "running".
 		let markRowReady;
 		const rowReady = new Promise((resolve) => (markRowReady = resolve));
-		const jobId = startScan(trimmed, trimmedHost, async (id, outcome) => {
+		const jobId = startScan(trimmed, trimmedPin, async (id, outcome) => {
 			await rowReady;
-			return finalizeZap(id, outcome, trimmedHost);
+			return finalizeZap(id, outcome);
 		});
 		await insertScanJob({
 			tool: 'zap',
 			target: trimmed,
 			externalId: jobId,
-			extra: trimmedHost ? `Host: ${trimmedHost}` : null,
+			extra: trimmedPin ? `→ ${trimmedPin}` : null,
 			createdBy: locals.user?.email ?? locals.user?.name ?? null
 		}).finally(markRowReady);
 		return json({ jobId });

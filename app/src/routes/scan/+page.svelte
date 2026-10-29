@@ -156,7 +156,7 @@
 	}
 
 	let zapTarget = $state('');
-	let zapHostHeader = $state('');
+	let zapPinIp = $state('');
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
 	let zapPhase = $state('');
 	let zapProgress = $state('');
@@ -221,7 +221,7 @@
 			const res = await fetch('/api/zap/scan', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ targets, hostHeader: zapHostHeader.trim() || undefined })
+				body: JSON.stringify({ targets, pinIp: zapPinIp.trim() || undefined })
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -639,9 +639,9 @@
 			/>
 			<input
 				type="text"
-				bind:value={zapHostHeader}
-				placeholder="Host header (ไม่บังคับ) เช่น web.kku.ac.th"
-				title="ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header — ใช้เมื่อ IP เดียวมีหลายเว็บ"
+				bind:value={zapPinIp}
+				placeholder="ปัก DNS → IP (ไม่บังคับ) เช่น 10.101.102.34"
+				title="สแกน URL ด้านบนด้วยชื่อจริง แต่บังคับให้ชื่อนั้น resolve ไปที่ IP นี้ (แบบ hosts file) — ใช้เมื่อชื่อเดียวมีหลายเครื่อง"
 				disabled={zapStatus === 'starting' || zapStatus === 'running'}
 				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
@@ -671,8 +671,8 @@
 		<HostResolver
 			disabled={zapStatus === 'starting' || zapStatus === 'running'}
 			onpick={(c) => {
-				zapTarget = `https://${c.ip}`;
-				zapHostHeader = c.host;
+				zapTarget = `https://${c.host}`;
+				zapPinIp = c.ip;
 			}}
 		/>
 

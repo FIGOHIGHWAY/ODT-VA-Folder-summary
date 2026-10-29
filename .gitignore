@@ -3,6 +3,9 @@ app/node_modules/
 app/.svelte-kit/
 app/build/
 nginx/certs/
+# SSH keys mounted into the app container for remote scanners — never commit.
+nuclei-keys/
+zap-keys/
 
 # real scan exports (and the test that reads them) used to debug the
 # parsers — contain real hostnames and real vulnerability findings, never

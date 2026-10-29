@@ -35,6 +35,9 @@ services:
       # Dedicated key for SSH-ing into the Nuclei VM to run scans remotely
       # (see lib/server/nuclei.js) — Nuclei has no HTTP API of its own.
       - ./nuclei-keys:/keys/nuclei:ro
+      # Forced-command key for the ZAP-VM DNS-pin helper (see lib/server/zap.js):
+      # lets a scan resolve a vhost name to a chosen IP for its duration.
+      - ./zap-keys:/keys/zap:ro
     depends_on:
       db:
         condition: service_healthy
