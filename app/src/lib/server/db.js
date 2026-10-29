@@ -890,6 +890,49 @@ export async function listFindingsForReport(reportId) {
 }
 
 /**
+ * Light finding list for the report page: the columns needed to render and
+ * group the table, WITHOUT the heavy description/solution/raw_evidence. A
+ * single ZAP scan can have tens of thousands of findings whose raw_evidence
+ * alone is tens of MB — shipping all of that to the browser froze the tab.
+ * The full detail of one finding is fetched on demand via getFindingDetail.
+ * @param {number} reportId
+ */
+export async function listFindingSummariesForReport(reportId) {
+	const { rows } = await pool.query(
+		`SELECT f.id, f.report_id, f.source_tool, f.target, f.identifier, f.title,
+		        f.title_key, f.severity, f.cvss_score, f.cve, f.affected_url_or_port,
+		        f.confidence, ${TRIAGE_COLUMNS}
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
+		 WHERE f.report_id = $1 ORDER BY
+		 CASE f.severity
+		   WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
+		   WHEN 'low' THEN 3 ELSE 4
+		 END, f.id`,
+		[reportId]
+	);
+	return rows;
+}
+
+/**
+ * Full detail of a single finding, including the heavy columns omitted from
+ * the list, for lazy-loading when a row is expanded on the report page.
+ * @param {number} findingId
+ */
+export async function getFindingDetail(findingId) {
+	const { rows } = await pool.query(
+		`SELECT f.*, ${TRIAGE_COLUMNS}
+		 FROM findings f
+		 JOIN reports r ON r.id = f.report_id
+		 ${TRIAGE_JOIN}
+		 WHERE f.id = $1`,
+		[findingId]
+	);
+	return rows[0] ?? null;
+}
+
+/**
  * Whether a report still has its original uploaded file kept (only true
  * for uploads from after this feature shipped) — cheap existence check
  * that doesn't fetch the (potentially large) blob itself.
