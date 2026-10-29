@@ -79,8 +79,9 @@ export async function parseAndInsertOpenvas(filename, xml) {
  * identical report (by content hash) was already imported.
  * @param {string} filename
  * @param {string} jsonl
+ * @param {string|null} [domainOverride] host to file the report under (e.g. a scan's Host header)
  */
-export async function parseAndInsertNuclei(filename, jsonl) {
+export async function parseAndInsertNuclei(filename, jsonl, domainOverride = null) {
 	const contentHash = hashContent(jsonl);
 
 	const existing = await findReportByContentHash(contentHash);
@@ -101,7 +102,8 @@ export async function parseAndInsertNuclei(filename, jsonl) {
 		originalFilename: filename,
 		findings,
 		contentHash,
-		rawHtmlGz
+		rawHtmlGz,
+		domainOverride
 	});
 	return { filename, reportId, type: 'nuclei', insertedCount, findings };
 }
@@ -111,8 +113,9 @@ export async function parseAndInsertNuclei(filename, jsonl) {
  * identical report (by content hash) was already imported.
  * @param {string} filename
  * @param {Array<object>} alerts
+ * @param {string|null} [domainOverride] host to file the report under (e.g. a scan's Host header)
  */
-export async function parseAndInsertZap(filename, alerts) {
+export async function parseAndInsertZap(filename, alerts, domainOverride = null) {
 	const json = JSON.stringify(alerts);
 	const contentHash = hashContent(json);
 
@@ -134,7 +137,8 @@ export async function parseAndInsertZap(filename, alerts) {
 		originalFilename: filename,
 		findings,
 		contentHash,
-		rawHtmlGz
+		rawHtmlGz,
+		domainOverride
 	});
 	return { filename, reportId, type: 'zap', insertedCount, findings };
 }

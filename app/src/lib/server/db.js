@@ -71,7 +71,7 @@ export async function findReportByContentHash(contentHash) {
 
 /**
  * Insert a parsed report and its findings inside one transaction.
- * @param {{ sourceTool: 'nessus'|'zap'|'burp', originalFilename: string, findings: Array<object>, contentHash?: string|null, rawHtmlGz?: Buffer|null }} input
+ * @param {{ sourceTool: 'nessus'|'zap'|'burp', originalFilename: string, findings: Array<object>, contentHash?: string|null, rawHtmlGz?: Buffer|null, domainOverride?: string|null }} input
  * @returns {Promise<{ reportId: number, insertedCount: number, domain: string|null }>}
  */
 export async function insertReport({
@@ -79,9 +79,13 @@ export async function insertReport({
 	originalFilename,
 	findings,
 	contentHash = null,
-	rawHtmlGz = null
+	rawHtmlGz = null,
+	domainOverride = null
 }) {
-	const domain = pickDomain(findings);
+	// When a scan targets an IP but sends a chosen Host header, the findings'
+	// target is the IP, so pickDomain would file the report under the IP. The
+	// Host header is the real site, so prefer it as the report's domain.
+	const domain = domainOverride || pickDomain(findings);
 	const scannedAt = extractScanDateFromFilename(originalFilename);
 	const client = await pool.connect();
 	try {

@@ -38,7 +38,7 @@ export async function POST({ request, locals }) {
 		const rowReady = new Promise((resolve) => (markRowReady = resolve));
 		const jobId = startScan(trimmed, trimmedCve, trimmedHost, async (id, outcome) => {
 			await rowReady;
-			return finalizeNuclei(id, outcome);
+			return finalizeNuclei(id, outcome, trimmedHost);
 		});
 		await insertScanJob({
 			tool: 'nuclei',

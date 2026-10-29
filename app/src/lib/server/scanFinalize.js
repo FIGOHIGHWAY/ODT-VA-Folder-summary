@@ -32,18 +32,26 @@ async function finalize(tool, jobId, { error, importFn }) {
 	}
 }
 
-/** @param {string} jobId @param {{ alerts: object[]|null, error: string|null }} outcome */
-export function finalizeZap(jobId, { alerts, error }) {
+/**
+ * @param {string} jobId
+ * @param {{ alerts: object[]|null, error: string|null }} outcome
+ * @param {string|null} [hostOverride] Host header the scan sent, so results file under it not the IP
+ */
+export function finalizeZap(jobId, { alerts, error }, hostOverride = null) {
 	return finalize('zap', jobId, {
 		error,
-		importFn: () => parseAndInsertZap(`zap-scan-${jobId}.json`, alerts ?? [])
+		importFn: () => parseAndInsertZap(`zap-scan-${jobId}.json`, alerts ?? [], hostOverride)
 	});
 }
 
-/** @param {string} jobId @param {{ output: string, error: string|null }} outcome */
-export function finalizeNuclei(jobId, { output, error }) {
+/**
+ * @param {string} jobId
+ * @param {{ output: string, error: string|null }} outcome
+ * @param {string|null} [hostOverride] Host header the scan sent, so results file under it not the IP
+ */
+export function finalizeNuclei(jobId, { output, error }, hostOverride = null) {
 	return finalize('nuclei', jobId, {
 		error,
-		importFn: () => parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, output)
+		importFn: () => parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, output, hostOverride)
 	});
 }

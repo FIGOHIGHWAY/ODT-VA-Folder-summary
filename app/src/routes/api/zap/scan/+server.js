@@ -39,7 +39,7 @@ export async function POST({ request, locals }) {
 		const rowReady = new Promise((resolve) => (markRowReady = resolve));
 		const jobId = startScan(trimmed, trimmedHost, async (id, outcome) => {
 			await rowReady;
-			return finalizeZap(id, outcome);
+			return finalizeZap(id, outcome, trimmedHost);
 		});
 		await insertScanJob({
 			tool: 'zap',
