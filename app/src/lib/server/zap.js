@@ -89,6 +89,10 @@ const MAX_ATTEMPTS = 4320; // 4320 * 5s = 6 hours absolute cap
 // non-vulnerable noise that otherwise inflates a scan by thousands of URLs.
 const EXCLUDE_REGEXES = ['.*/_next/.*', '.*[?&]w=[0-9]+&q=[0-9]+.*'];
 
+// Active-scan rules turned off for every scan: 40026 Cross Site Scripting
+// (DOM Based), 10104 User Agent Fuzzer.
+const DISABLED_SCANNER_IDS = ['40026', '10104'];
+
 /** @param {{ percent: number, cancelled?: boolean }} job */
 async function waitForCompletion(statusPath, scanId, job) {
 	let lastPercent = -1;
@@ -202,6 +206,12 @@ export function startScan(targetUrls, pinIp, onFinish) {
 			// take ZAP down with it. Cap each rule so ZAP skips a stuck one and
 			// carries on with the rest of the scan.
 			await zapGet('/JSON/ascan/action/setOptionMaxRuleDurationInMins/', { Integer: '10' });
+			// Rules that cost far more than they find. DOM XSS renders pages in
+			// Firefox, which on sites with a Cloudflare challenge retries the
+			// unreachable challenge host until ZAP nears its memory cap (it took
+			// ZAP down once). User Agent Fuzzer only reports info-level variants
+			// and made up two thirds of a kkuenterprise scan's findings.
+			await zapGet('/JSON/ascan/action/disableScanners/', { ids: DISABLED_SCANNER_IDS.join(',') });
 
 			// Skip noise that is never a vulnerability but explodes the result set:
 			// Next.js build assets (/_next/…) and the image optimizer's per-size,
