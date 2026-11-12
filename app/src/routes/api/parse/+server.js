@@ -50,7 +50,9 @@ export async function POST({ request }) {
 		try {
 			const html = entry.getData().toString('utf-8');
 			const { findings, ...result } = await parseAndInsert(filename, html);
-			results.push(result);
+			// A multi-host report comes back as its own per-host batch.
+			if (result.batch) results.push(...result.results);
+			else results.push(result);
 		} catch (err) {
 			results.push({ filename, error: err instanceof Error ? err.message : String(err) });
 		}

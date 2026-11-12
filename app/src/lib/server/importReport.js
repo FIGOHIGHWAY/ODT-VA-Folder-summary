@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { parseReport } from './parsers/index.js';
+import { parseReport, PER_HOST_TYPES } from './parsers/index.js';
 import { parseOpenvasXml } from './parsers/openvas.js';
 import { parseNucleiJsonl } from './parsers/nuclei.js';
 import { parseZapAlerts } from './parsers/zapAlerts.js';
@@ -31,6 +31,9 @@ export async function parseAndInsert(filename, html) {
 	}
 
 	const { type, findings } = parseReport(html, filename);
+	if (PER_HOST_TYPES.has(type)) {
+		return insertPerHost(filename, html, type, findings);
+	}
 	const rawHtmlGz = gzipSync(Buffer.from(html, 'utf-8'));
 	const { reportId, insertedCount } = await insertReport({
 		sourceTool: type,
@@ -40,6 +43,64 @@ export async function parseAndInsert(filename, html) {
 		rawHtmlGz
 	});
 	return { filename, reportId, type, insertedCount, findings };
+}
+
+/**
+ * File a report that covers many unrelated hosts (e.g. one CVE swept across
+ * whole networks) as one report per host, so each host keeps its own domain,
+ * triage decisions and history instead of all of them landing under one
+ * host. Duplicates are detected per host — the hash covers the file plus the
+ * host — so re-uploading the same file skips every host already imported.
+ * Returns the batch shape the upload page already renders for ZIP uploads.
+ * @param {string} filename
+ * @param {string} html
+ * @param {string} type
+ * @param {Array<object>} findings
+ */
+async function insertPerHost(filename, html, type, findings) {
+	/** @type {Map<string, Array<object>>} */
+	const byHost = new Map();
+	for (const f of findings) {
+		const host = f.target ?? 'unknown';
+		if (!byHost.has(host)) byHost.set(host, []);
+		byHost.get(host).push(f);
+	}
+
+	const rawHtmlGz = gzipSync(Buffer.from(html, 'utf-8'));
+	const results = [];
+	for (const [host, hostFindings] of byHost) {
+		const label = `${filename} · ${host}`;
+		const contentHash = hashContent(`${html}\n${host}`);
+		const existing = await findReportByContentHash(contentHash);
+		if (existing) {
+			results.push({
+				filename: label,
+				duplicate: true,
+				existingReportId: existing.id,
+				existingFilename: existing.original_filename,
+				existingImportedAt: existing.imported_at
+			});
+			continue;
+		}
+		const { reportId, insertedCount } = await insertReport({
+			sourceTool: type,
+			originalFilename: label,
+			findings: hostFindings,
+			contentHash,
+			rawHtmlGz
+		});
+		results.push({ filename: label, reportId, type, insertedCount });
+	}
+
+	const duplicates = results.filter((r) => r.duplicate).length;
+	return {
+		filename,
+		batch: true,
+		total: results.length,
+		succeeded: results.length - duplicates,
+		duplicates,
+		results
+	};
 }
 
 /**
