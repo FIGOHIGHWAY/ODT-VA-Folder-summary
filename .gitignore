@@ -6,6 +6,9 @@ nginx/certs/
 # SSH keys mounted into the app container for remote scanners — never commit.
 nuclei-keys/
 zap-keys/
+openvas-tunnel-keys/
+# deploy log and lock/state files written by ops/*.sh on the server
+logs/
 
 # real scan exports (and the test that reads them) used to debug the
 # parsers — contain real hostnames and real vulnerability findings, never
