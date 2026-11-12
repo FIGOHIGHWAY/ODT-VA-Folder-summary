@@ -27,6 +27,17 @@ Every deploy, skip and rollback is written to `logs/deploy.log` on the server:
 - **Rolls back** to the previous commit if `/login` doesn't answer 200 after
   the rebuild, and won't retry that commit until a newer one is pushed.
 
+## Scanner VMs
+
+Scan traffic leaves from these addresses — use them for firewall allowlists.
+
+| Tool | IP | How the app reaches it |
+|---|---|---|
+| OWASP ZAP | 10.101.118.175 | API via SSH tunnel (`zap-tunnel.service`), DNS-pin helper via SSH |
+| OpenVAS | 10.101.118.177 | GMP via SSH tunnel (`openvas-tunnel.service`) |
+| Nuclei | 10.101.118.178 | SSH, runs the CLI |
+| Nessus | 10.101.118.179 | HTTPS API on 8834 |
+
 ## Reboots
 
 Kernel updates need a reboot, which is not automatic (it would drop running
