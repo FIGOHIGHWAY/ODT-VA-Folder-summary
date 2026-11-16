@@ -12,27 +12,45 @@ function clean(text) {
 }
 
 /**
- * Parse a Nuclei CVE sweep report — an HTML summary of one CVE checked across
- * many hosts (Nuclei itself has no HTML export; these are written up from its
- * results). Each affected host is a table row with a `td.ip` cell:
+ * Parse a Nuclei HTML report into the unified finding schema. Nuclei has no
+ * HTML export of its own, so these are written up from its results and come
+ * in two shapes, told apart by their markup:
  *
- * - rows carrying a green `.b-ok` badge are hosts checked and found NOT
- *   affected, so they are skipped;
- * - a host can appear in several tables (e.g. the action list and an HTTP/2
- *   check), so the first row per IP wins — the action list comes first and
- *   carries the richest evidence;
- * - a row with a version `.chip` but no badge is a version-only match, kept
- *   with confidence "tentative" so the triage view flags it for review.
+ * - a "CVE sweep" — one CVE checked across many hosts, each host a `td.ip`
+ *   table row (see parseCveSweepLayout);
+ * - a "vulnerability list" — many findings, each a `tr.r` row listing its
+ *   affected hosts as `a.host` links (see parseVulnListLayout).
  *
- * The CVE, title, severity and CVSS come from the report header; the fix
- * comes from the "สิ่งที่ต้องทำ" / "มาตรการชั่วคราว" notes.
+ * Both produce one finding per (vulnerability, host) pair, so the import
+ * layer files them one report per host.
  *
  * @param {string} html
  * @param {string} sourceLabel used in error messages to identify which file failed
- * @returns {Array<object>} one finding per affected host
+ * @returns {Array<object>}
  */
 export function parseNucleiHtml(html, sourceLabel = 'nuclei report') {
 	const $ = cheerio.load(html);
+	if ($('td.ip').length > 0) return parseCveSweepLayout($, sourceLabel);
+	if ($('tr.r').length > 0 || $('a.host').length > 0) return parseVulnListLayout($, sourceLabel);
+	throw new Error(
+		`parseNucleiHtml: ไม่รู้จักโครงสร้างรายงาน Nuclei ใน ${sourceLabel} (ไม่พบทั้งตาราง td.ip และแถว tr.r / a.host)`
+	);
+}
+
+/**
+ * CVE sweep layout — one CVE across many hosts, each in a `td.ip` row:
+ * - rows with a green `.b-ok` badge are hosts checked and NOT affected, so
+ *   they are skipped;
+ * - a host can appear in several tables, so the first (richest) row per IP
+ *   wins;
+ * - a row with a version `.chip` but no risk badge is a version-only match,
+ *   kept as "tentative" so triage flags it for review.
+ * CVE, title, severity and CVSS come from the header; the fix from the
+ * "สิ่งที่ต้องทำ" / "มาตรการชั่วคราว" notes.
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} sourceLabel
+ */
+function parseCveSweepLayout($, sourceLabel) {
 	const headerText = clean($('header').first().text() || $('h1').first().text());
 	const bodyText = clean($('body').text());
 
@@ -121,4 +139,97 @@ export function parseNucleiHtml(html, sourceLabel = 'nuclei report') {
 		);
 	}
 	return [...byIp.values()];
+}
+
+/** Strip a leading Thai label like "ผลกระทบ:" from a detail line. */
+function stripLabel(text) {
+	return text.replace(/^[^:：]{0,40}[:：]\s*/, '').trim();
+}
+
+/** The hostname of an <a> — from its href if parseable, else its link text. */
+function hostOf($a) {
+	const href = $a.attr('href');
+	if (href) {
+		try {
+			return new URL(href).hostname.toLowerCase();
+		} catch {
+			/* fall through to the link text */
+		}
+	}
+	// Link text can carry a trailing "●" marking a newly-found host.
+	return clean($a.text()).replace(/\s*●\s*$/, '').toLowerCase();
+}
+
+/**
+ * Vulnerability-list layout — many findings, each a `tr.r` summary row
+ * (severity badge, template id in `<code>`, name in `.nm`, CVSS/EPSS `.num`
+ * cells, affected hosts as `a.host` links) followed by a `tr.d` detail row
+ * (impact `.imp`, fix `.fix`, references `.refs`). Emits one finding per
+ * (vulnerability, host). These reports are version-based (readme.txt) and
+ * say so, so every finding is "tentative" to make triage flag it.
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} sourceLabel
+ */
+function parseVulnListLayout($, sourceLabel) {
+	/** @type {Array<object>} */
+	const results = [];
+
+	$('tr.r').each((_, rowEl) => {
+		const $row = $(rowEl);
+		const badgeClass = $row.find('span.badge').attr('class') ?? '';
+		const severity = SEVERITIES.find((s) => badgeClass.split(/\s+/).includes(s)) ?? 'info';
+
+		const identifier = clean($row.find('code').first().text()) || 'unknown';
+		const name = clean($row.find('.nm').first().text());
+		const title = name || identifier;
+		const cve = identifier.match(CVE_PATTERN)?.[0]?.toUpperCase() ?? null;
+
+		const cvssText = clean($row.find('.num').first().text());
+		const cvss = /^\d/.test(cvssText) ? Number(cvssText) : null;
+
+		const $detail = $row.nextAll('tr.d').first();
+		const impact = stripLabel(clean($detail.find('.imp').text()));
+		const fix = stripLabel(clean($detail.find('.fix').text())) || null;
+		const refs = $detail
+			.find('.refs a')
+			.map((_, a) => $(a).attr('href'))
+			.get()
+			.filter(Boolean);
+
+		$row.find('.hosts a').each((_, a) => {
+			const $a = $(a);
+			const host = hostOf($a);
+			if (!host) return;
+			const isNew = $a.hasClass('new');
+			const description = [
+				impact,
+				isNew && 'พบเพิ่มในการสแกนรอบที่ 2',
+				refs.length > 0 && `อ้างอิง: ${refs.join(' ')}`
+			]
+				.filter(Boolean)
+				.join('\n');
+
+			results.push({
+				source_tool: 'nuclei',
+				target: host,
+				identifier,
+				title,
+				severity,
+				description,
+				solution: fix,
+				cvss_score: cvss,
+				cve,
+				affected_url_or_port: `https://${host}`,
+				confidence: 'tentative',
+				raw_evidence: `${$.html($row)}\n${$.html($detail)}`
+			});
+		});
+	});
+
+	if (results.length === 0) {
+		throw new Error(
+			`parseNucleiHtml: ไม่พบรายการช่องโหว่ (แถว tr.r ที่มีโฮสต์) ใน ${sourceLabel}`
+		);
+	}
+	return results;
 }

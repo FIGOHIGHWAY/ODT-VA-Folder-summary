@@ -22,9 +22,14 @@ export function detectReportType(html, sourceLabel = 'report') {
 	// signatures actually seen across versions.
 	if (/OWASP ZAP|ZAP by Checkmarx|zaproxy\.org/i.test(combined)) return 'zap';
 	if (/^Burp Scanner Report$/im.test(title)) return 'burp';
-	// A Nuclei CVE sweep write-up: names Nuclei and a CVE, and lists hosts in
-	// td.ip cells (see parsers/nucleiHtml.js).
-	if (/\bNuclei\b/i.test(combined) && /CVE-\d{4}-\d{4,}/i.test(combined) && $('td.ip').length > 0) {
+	// A Nuclei write-up: names Nuclei and a CVE, and lists hosts either as
+	// td.ip cells (CVE sweep) or a.host links in tr.r rows (vulnerability
+	// list). See parsers/nucleiHtml.js.
+	if (
+		/\bNuclei\b/i.test(combined) &&
+		/CVE-\d{4}-\d{4,}/i.test(combined) &&
+		($('td.ip').length > 0 || $('a.host').length > 0 || $('tr.r').length > 0)
+	) {
 		return 'nuclei';
 	}
 

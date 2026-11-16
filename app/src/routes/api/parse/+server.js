@@ -1,21 +1,29 @@
 import { json } from '@sveltejs/kit';
 import AdmZip from 'adm-zip';
-import { parseAndInsert } from '$lib/server/importReport.js';
+import { parseAndInsert, parseAndInsertNucleiJsonlUpload } from '$lib/server/importReport.js';
+
+const JSONL_PATTERN = /\.(jsonl|ndjson)$/i;
+const HTML_PATTERN = /\.html?$/i;
+
+/** Parse one uploaded file by its extension: Nuclei -jsonl, or an HTML report. */
+function importByName(filename, text) {
+	if (JSONL_PATTERN.test(filename)) return parseAndInsertNucleiJsonlUpload(filename, text);
+	return parseAndInsert(filename, text);
+}
 
 export async function POST({ request }) {
 	const form = await request.formData();
 	const file = form.get('file');
 
 	if (!(file instanceof File)) {
-		return json({ error: 'ต้องแนบไฟล์ HTML หรือ ZIP ในฟิลด์ "file"' }, { status: 400 });
+		return json({ error: 'ต้องแนบไฟล์ HTML, .jsonl หรือ ZIP ในฟิลด์ "file"' }, { status: 400 });
 	}
 
 	const isZip = file.name.toLowerCase().endsWith('.zip');
 
 	if (!isZip) {
-		const html = await file.text();
 		try {
-			const result = await parseAndInsert(file.name, html);
+			const result = await importByName(file.name, await file.text());
 			return json(result);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -23,8 +31,8 @@ export async function POST({ request }) {
 		}
 	}
 
-	// ZIP: extract every .html/.htm entry and parse+insert each independently
-	// — one bad file in the batch doesn't block the rest.
+	// ZIP: extract every .html/.htm/.jsonl entry and parse+insert each
+	// independently — one bad file in the batch doesn't block the rest.
 	const buffer = Buffer.from(await file.arrayBuffer());
 	let zip;
 	try {
@@ -38,18 +46,17 @@ export async function POST({ request }) {
 
 	const entries = zip
 		.getEntries()
-		.filter((e) => !e.isDirectory && /\.html?$/i.test(e.entryName));
+		.filter((e) => !e.isDirectory && (HTML_PATTERN.test(e.entryName) || JSONL_PATTERN.test(e.entryName)));
 
 	if (entries.length === 0) {
-		return json({ error: 'ไม่พบไฟล์ .html/.htm ใน ZIP นี้' }, { status: 422 });
+		return json({ error: 'ไม่พบไฟล์ .html/.htm/.jsonl ใน ZIP นี้' }, { status: 422 });
 	}
 
 	const results = [];
 	for (const entry of entries) {
 		const filename = entry.entryName.split('/').pop();
 		try {
-			const html = entry.getData().toString('utf-8');
-			const { findings, ...result } = await parseAndInsert(filename, html);
+			const { findings, ...result } = await importByName(filename, entry.getData().toString('utf-8'));
 			// A multi-host report comes back as its own per-host batch.
 			if (result.batch) results.push(...result.results);
 			else results.push(result);

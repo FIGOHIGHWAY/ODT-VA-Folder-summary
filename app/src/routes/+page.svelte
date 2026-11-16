@@ -170,7 +170,7 @@
 				<input
 					bind:this={fileInput}
 					type="file"
-					accept=".html,.htm,.zip"
+					accept=".html,.htm,.jsonl,.ndjson,.zip"
 					onchange={onFileChange}
 					style="display:none"
 				/>

@@ -4,7 +4,7 @@ import { parseReport, PER_HOST_TYPES } from './parsers/index.js';
 import { parseOpenvasXml } from './parsers/openvas.js';
 import { parseNucleiJsonl } from './parsers/nuclei.js';
 import { parseZapAlerts } from './parsers/zapAlerts.js';
-import { insertReport, findReportByContentHash } from './db.js';
+import { insertReport, findReportByContentHash, extractDomain } from './db.js';
 
 function hashContent(html) {
 	return createHash('sha256').update(html, 'utf-8').digest('hex');
@@ -101,6 +101,25 @@ async function insertPerHost(filename, html, type, findings) {
 		duplicates,
 		results
 	};
+}
+
+/**
+ * Import an uploaded Nuclei `-jsonl` file (as produced by running nuclei by
+ * hand, e.g. over many hosts). Like the HTML Nuclei reports it is filed one
+ * report per host, so each host keeps its own domain, triage and history.
+ * @param {string} filename
+ * @param {string} jsonl raw -jsonl output (one JSON object per line)
+ */
+export async function parseAndInsertNucleiJsonlUpload(filename, jsonl) {
+	const findings = parseNucleiJsonl(jsonl, filename).map((f) => ({
+		...f,
+		// Group by hostname; nuclei's own target may be a full URL or host:port.
+		target: extractDomain(f.target) ?? extractDomain(f.affected_url_or_port) ?? f.target ?? 'unknown'
+	}));
+	if (findings.length === 0) {
+		return { filename, batch: true, total: 0, succeeded: 0, duplicates: 0, results: [] };
+	}
+	return insertPerHost(filename, jsonl, 'nuclei', findings);
 }
 
 /**

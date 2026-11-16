@@ -79,8 +79,86 @@ describe('parseNucleiHtml', () => {
 		expect(detectReportType(REPORT, 'test.html')).toBe('nuclei');
 	});
 
-	it('throws when no affected host row is found', () => {
+	it('throws when the report has no recognizable host rows', () => {
 		const empty = REPORT.replace(/<td class="ip">/g, '<td>');
-		expect(() => parseNucleiHtml(empty, 'x.html')).toThrow(/ไม่พบแถวโฮสต์/);
+		expect(() => parseNucleiHtml(empty, 'x.html')).toThrow(/ไม่รู้จักโครงสร้าง/);
+	});
+});
+
+// Vulnerability-list layout: many findings, each listing its affected hosts.
+const VULN_LIST = `<!doctype html><html><head><title>รายงานผลการสแกนช่องโหว่ WordPress</title></head><body>
+<header><h1>รายงานผลการสแกนช่องโหว่ WordPress</h1>
+<div class="sub">เครื่องมือ Nuclei v3.11.1 · สแกนจาก 10.101.118.178</div></header>
+<div class="card"><table><tbody>
+  <tr class="r critical">
+    <td><span class="badge critical">วิกฤต</span></td>
+    <td class="tid"><code>CVE-2026-104736</code><div class="nm">LearnPress &lt;= 4.4.9.1 - PHP Object Injection</div></td>
+    <td class="num">9.8</td><td class="num">2.5%</td><td class="cnt">2</td>
+    <td class="hosts"><a class="host" href="https://ccahub.kku.ac.th">ccahub.kku.ac.th</a> <a class="host new" href="https://pharmacy.kku.ac.th">pharmacy.kku.ac.th ●</a></td>
+  </tr>
+  <tr class="d critical"><td></td><td colspan="5">
+    <div class="imp"><b>ผลกระทบ:</b> ช่องโหว่ระดับยึดระบบในปลั๊กอิน LearnPress</div>
+    <div class="fix"><b>แนวทางแก้ไข:</b> อัปเดต LearnPress เป็นเวอร์ชันล่าสุด</div>
+    <div class="refs"><a href="https://wpscan.com/x">อ้างอิง</a></div>
+  </td></tr>
+  <tr class="r low">
+    <td><span class="badge low">ต่ำ</span></td>
+    <td class="tid"><code>wp-user-enum</code><div class="nm">WordPress REST API User Enumeration</div></td>
+    <td class="num">–</td><td class="num">–</td><td class="cnt">1</td>
+    <td class="hosts"><a class="host" href="https://apds.kku.ac.th">apds.kku.ac.th</a></td>
+  </tr>
+  <tr class="d low"><td></td><td colspan="5">
+    <div class="imp"><b>ผลกระทบ:</b> แสดงรายชื่อบัญชีผู้ใช้ผ่าน REST API</div>
+    <div class="fix"><b>แนวทางแก้ไข:</b> ปิดการแสดงรายชื่อผู้ใช้</div><div class="refs"></div>
+  </td></tr>
+</tbody></table></div></body></html>`;
+
+describe('parseNucleiHtml — vulnerability-list layout', () => {
+	const findings = parseNucleiHtml(VULN_LIST, 'wp.html');
+
+	it('is detected as a nuclei report', () => {
+		expect(detectReportType(VULN_LIST, 'wp.html')).toBe('nuclei');
+	});
+
+	it('emits one finding per (vulnerability, host)', () => {
+		expect(findings).toHaveLength(3);
+		expect(findings.map((f) => f.target).sort()).toEqual([
+			'apds.kku.ac.th',
+			'ccahub.kku.ac.th',
+			'pharmacy.kku.ac.th'
+		]);
+	});
+
+	it('reads severity, id, title, CVE and CVSS from the summary row', () => {
+		const f = findings.find((x) => x.target === 'ccahub.kku.ac.th');
+		expect(f).toMatchObject({
+			source_tool: 'nuclei',
+			severity: 'critical',
+			identifier: 'CVE-2026-104736',
+			cve: 'CVE-2026-104736',
+			cvss_score: 9.8,
+			confidence: 'tentative',
+			affected_url_or_port: 'https://ccahub.kku.ac.th'
+		});
+		expect(f.title).toBe('LearnPress <= 4.4.9.1 - PHP Object Injection');
+	});
+
+	it('takes impact and fix from the detail row, stripping the Thai label', () => {
+		const f = findings.find((x) => x.target === 'apds.kku.ac.th');
+		expect(f.description).toContain('แสดงรายชื่อบัญชีผู้ใช้ผ่าน REST API');
+		expect(f.description).not.toContain('ผลกระทบ:');
+		expect(f.solution).toBe('ปิดการแสดงรายชื่อผู้ใช้');
+	});
+
+	it('leaves non-CVE template ids without a CVE and null CVSS when "–"', () => {
+		const f = findings.find((x) => x.target === 'apds.kku.ac.th');
+		expect(f.identifier).toBe('wp-user-enum');
+		expect(f.cve).toBeNull();
+		expect(f.cvss_score).toBeNull();
+	});
+
+	it('flags hosts marked ● as newly found', () => {
+		const f = findings.find((x) => x.target === 'pharmacy.kku.ac.th');
+		expect(f.description).toContain('พบเพิ่มในการสแกนรอบที่ 2');
 	});
 });
