@@ -625,9 +625,9 @@
 		<h2><img src={zapLogo} alt="ZAP" class="tool-logo" /> สั่งสแกนด้วย OWASP ZAP</h2>
 		<p class="sub">
 			ใส่ URL เต็มรูปแบบของเว็บเป้าหมาย (เช่น https://example.kku.ac.th) คั่นด้วย comma
-			เพื่อสแกนหลาย URL ต่อเนื่องกัน ระบบจะสั่ง ZAP crawl
-			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ทีละ URL แล้วดึงผลกลับมา import
-			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
+			เพื่อสแกนหลายเว็บพร้อมกัน (ค่าเริ่มต้นสูงสุด 5 เว็บพร้อมกัน) ระบบจะสั่ง ZAP crawl
+			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ของแต่ละเว็บไปพร้อม ๆ กัน แล้วดึงผลกลับมา import
+			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ (การปัก DNS → IP ใช้ได้ทีละ 1 เว็บ)
 		</p>
 		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
 			<input

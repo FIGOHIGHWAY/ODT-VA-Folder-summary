@@ -93,26 +93,153 @@ const EXCLUDE_REGEXES = ['.*/_next/.*', '.*[?&]w=[0-9]+&q=[0-9]+.*'];
 // (DOM Based), 10104 User Agent Fuzzer.
 const DISABLED_SCANNER_IDS = ['40026', '10104'];
 
-/** @param {{ percent: number, cancelled?: boolean }} job */
-async function waitForCompletion(statusPath, scanId, job) {
+// How many target URLs are spidered + active-scanned at the same time inside
+// one ZAP session. ZAP runs concurrent scans fine; the real limit is the
+// container's RAM, so this is capped and overridable via env. Default 5.
+const DEFAULT_CONCURRENCY = 5;
+const MAX_CONCURRENCY = 10;
+
+function scanConcurrency() {
+	const raw = Number.parseInt(env.ZAP_SCAN_CONCURRENCY ?? '', 10);
+	if (!Number.isFinite(raw) || raw < 1) return DEFAULT_CONCURRENCY;
+	return Math.min(raw, MAX_CONCURRENCY);
+}
+
+/**
+ * Roll each target's per-phase percent (spider 0–100, active scan 0–100) into
+ * one 0–100 figure — spider is the first half, active scan the second — and
+ * recompute the job's aggregate percent, phase label and "done X/N" progress
+ * across every concurrent target.
+ * @param {object} job
+ */
+function recompute(job) {
+	const trs = [...job.targets.values()];
+	if (trs.length === 0) return;
+	job.percent = Math.round(trs.reduce((s, t) => s + (t.percent || 0), 0) / trs.length);
+	const done = trs.filter((t) => t.done).length;
+	// A representative coarse phase for the status label: show the latest stage
+	// any target has reached that isn't finished yet.
+	if (trs.some((t) => !t.done && t.phase === 'active-scan')) job.phase = 'active-scan';
+	else if (trs.some((t) => !t.done && t.phase === 'spider')) job.phase = 'spider';
+	else job.phase = 'fetching-alerts';
+	job.progress = trs.length > 1 ? `เสร็จ ${done}/${trs.length} เว็บ` : '';
+}
+
+/**
+ * Poll one spider/active-scan to completion, updating that target's slice of
+ * the aggregate progress. `kind` maps the raw percent into this target's half
+ * (spider → 0–50, active scan → 50–100).
+ * @param {object} job
+ * @param {{ percent: number, done: boolean }} tr per-target tracker
+ * @param {'spider'|'ascan'} kind
+ */
+async function waitForCompletion(statusPath, scanId, job, tr, kind) {
 	let lastPercent = -1;
 	let stalledFor = 0;
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		if (job.cancelled) throw new Error('ยกเลิกโดยผู้ใช้');
 		const { status } = await zapGet(statusPath, { scanId });
-		job.percent = Number(status);
-		if (job.percent >= 100) return;
+		const raw = Number(status);
+		tr.percent = kind === 'spider' ? Math.round(raw / 2) : 50 + Math.round(raw / 2);
+		recompute(job);
+		if (raw >= 100) return;
 
-		stalledFor = job.percent > lastPercent ? 0 : stalledFor + 1;
-		lastPercent = job.percent;
+		stalledFor = raw > lastPercent ? 0 : stalledFor + 1;
+		lastPercent = raw;
 		if (stalledFor >= STALL_LIMIT) {
 			throw new Error(
-				`${statusPath} ค้างที่ ${job.percent}% มานาน ${(STALL_LIMIT * POLL_INTERVAL_MS) / 60000} นาทีโดยไม่ขยับ — ถือว่าสแกนติดค้าง`
+				`${statusPath} ค้างที่ ${raw}% มานาน ${(STALL_LIMIT * POLL_INTERVAL_MS) / 60000} นาทีโดยไม่ขยับ — ถือว่าสแกนติดค้าง`
 			);
 		}
 		await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 	}
 	throw new Error(`${statusPath} ไม่เสร็จภายในเวลาที่กำหนด (เกิน ${(MAX_ATTEMPTS * POLL_INTERVAL_MS) / 3600000} ชั่วโมง)`);
+}
+
+/**
+ * Spider then active-scan one target to completion inside the shared session,
+ * returning its alerts. Errors are scoped to this target by the caller so one
+ * bad URL doesn't sink the rest of the batch.
+ * @param {object} job
+ * @param {string} targetUrl
+ * @returns {Promise<object[]>}
+ */
+async function scanOneTarget(job, targetUrl) {
+	const tr = job.targets.get(targetUrl);
+
+	tr.phase = 'spider';
+	const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
+	tr.scanType = 'spider';
+	tr.scanId = spiderId;
+	await waitForCompletion('/JSON/spider/view/status/', spiderId, job, tr, 'spider');
+
+	tr.phase = 'active-scan';
+	let ascanId;
+	try {
+		({ scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl }));
+	} catch (err) {
+		// ZAP replies URL_NOT_FOUND when the spider found no page to scan at this
+		// target — almost always a mistyped URL or a host ZAP can't reach.
+		if (/URL_NOT_FOUND/i.test(err instanceof Error ? err.message : String(err))) {
+			throw new Error(
+				`ZAP spider ไม่พบหน้าใดในเป้าหมาย "${targetUrl}" จึงเริ่ม active scan ไม่ได้ — ตรวจสอบว่า URL ถูกต้อง (เช่น .ac.th ครบ) และเข้าถึงได้`
+			);
+		}
+		throw err;
+	}
+	// A valid scan id is numeric; anything else (e.g. an error placeholder) would
+	// later surface as a cryptic "does_not_exist" when polling status.
+	if (ascanId == null || !/^\d+$/.test(String(ascanId))) {
+		throw new Error(
+			`ZAP ไม่คืนรหัส active scan ที่ใช้ได้สำหรับ "${targetUrl}" — spider อาจไม่พบหน้าใด ตรวจสอบ URL/การเข้าถึง`
+		);
+	}
+	tr.scanType = 'ascan';
+	tr.scanId = ascanId;
+	await waitForCompletion('/JSON/ascan/view/status/', ascanId, job, tr, 'ascan');
+
+	tr.phase = 'fetching-alerts';
+	const { alerts } = await zapGet('/JSON/core/view/alerts/', { baseurl: targetUrl });
+	tr.done = true;
+	tr.percent = 100;
+	recompute(job);
+	return alerts;
+}
+
+/**
+ * Run up to `concurrency` targets at once with a worker pool, collecting every
+ * target's alerts and keeping any per-target failures separate.
+ * @param {object} job
+ * @param {string[]} urlList
+ * @param {number} concurrency
+ * @returns {Promise<{ allAlerts: object[], errors: string[] }>}
+ */
+async function runTargetPool(job, urlList, concurrency) {
+	const allAlerts = [];
+	const errors = [];
+	let next = 0;
+	async function worker() {
+		for (;;) {
+			if (job.cancelled) return;
+			const i = next++;
+			if (i >= urlList.length) return;
+			const url = urlList[i];
+			try {
+				allAlerts.push(...(await scanOneTarget(job, url)));
+			} catch (err) {
+				const tr = job.targets.get(url);
+				if (tr) {
+					tr.error = err instanceof Error ? err.message : String(err);
+					tr.done = true;
+					tr.percent = 100;
+				}
+				errors.push(`${url}: ${err instanceof Error ? err.message : String(err)}`);
+				recompute(job);
+			}
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(concurrency, urlList.length) }, worker));
+	return { allAlerts, errors };
 }
 
 /** The hostname of a URL, or null if it can't be parsed. */
@@ -136,6 +263,9 @@ function splitTargets(targets) {
  * Launch a Spider crawl followed by an Active Scan against one or more
  * target URLs (run sequentially), then fetch the resulting alerts. Runs in
  * the background; poll with getScanStatus(jobId).
+ * Targets are spidered + active-scanned concurrently (a worker pool, default 5,
+ * `ZAP_SCAN_CONCURRENCY` to change) inside one shared ZAP session; a single
+ * target behind a DNS pin still runs alone since the pin maps one host→IP.
  * @param {string} targetUrls one URL, or several separated by commas/newlines
  * @param {string|null} pinIp when given, the single target hostname is forced
  *   to resolve to this IP for the scan (hosts-file style), so a specific server
@@ -170,6 +300,14 @@ export function startScan(targetUrls, pinIp, onFinish) {
 	}
 
 	const jobId = randomUUID();
+	// One tracker per target so concurrent scans each keep their own phase,
+	// percent and the ZAP scan ids needed to stop them on cancel.
+	const targets = new Map(
+		urlList.map((url) => [
+			url,
+			{ phase: 'spider', percent: 0, done: false, error: null, scanType: null, scanId: null }
+		])
+	);
 	jobs.set(jobId, {
 		status: 'running',
 		phase: 'spider',
@@ -178,8 +316,7 @@ export function startScan(targetUrls, pinIp, onFinish) {
 		alerts: null,
 		error: null,
 		cancelled: false,
-		currentScanType: null,
-		currentScanId: null
+		targets
 	});
 
 	(async () => {
@@ -223,48 +360,19 @@ export function startScan(targetUrls, pinIp, onFinish) {
 				await zapGet('/JSON/ascan/action/excludeFromScan/', { regex });
 			}
 
-			const allAlerts = [];
-			for (const [i, targetUrl] of urlList.entries()) {
-				job.progress = urlList.length > 1 ? `${i + 1}/${urlList.length}: ${targetUrl}` : '';
+			// Scan every target concurrently (a pool, so a long URL list doesn't
+			// swamp ZAP's memory all at once). Per-target failures are collected
+			// rather than thrown so one bad URL doesn't waste the rest of the batch.
+			const { allAlerts, errors } = await runTargetPool(job, urlList, scanConcurrency());
 
-				job.phase = 'spider';
-				job.percent = 0;
-				const { scan: spiderId } = await zapGet('/JSON/spider/action/scan/', { url: targetUrl });
-				job.currentScanType = 'spider';
-				job.currentScanId = spiderId;
-				await waitForCompletion('/JSON/spider/view/status/', spiderId, job);
-
-				job.phase = 'active-scan';
-				job.percent = 0;
-				let ascanId;
-				try {
-					({ scan: ascanId } = await zapGet('/JSON/ascan/action/scan/', { url: targetUrl }));
-				} catch (err) {
-					// ZAP replies URL_NOT_FOUND when the spider found no page to scan at
-					// this target — almost always a mistyped URL or a host ZAP can't
-					// reach. Surface that instead of the raw API error.
-					if (/URL_NOT_FOUND/i.test(err instanceof Error ? err.message : String(err))) {
-						throw new Error(
-							`ZAP spider ไม่พบหน้าใดในเป้าหมาย "${targetUrl}" จึงเริ่ม active scan ไม่ได้ — ตรวจสอบว่า URL ถูกต้อง (เช่น .ac.th ครบ) และเข้าถึงได้`
-						);
-					}
-					throw err;
-				}
-				// A valid scan id is numeric; anything else (e.g. an error placeholder)
-				// would later surface as a cryptic "does_not_exist" when polling status.
-				if (ascanId == null || !/^\d+$/.test(String(ascanId))) {
-					throw new Error(
-						`ZAP ไม่คืนรหัส active scan ที่ใช้ได้สำหรับ "${targetUrl}" — spider อาจไม่พบหน้าใด ตรวจสอบ URL/การเข้าถึง`
-					);
-				}
-				job.currentScanType = 'ascan';
-				job.currentScanId = ascanId;
-				await waitForCompletion('/JSON/ascan/view/status/', ascanId, job);
-
-				job.phase = 'fetching-alerts';
-				job.percent = 100;
-				const { alerts } = await zapGet('/JSON/core/view/alerts/', { baseurl: targetUrl });
-				allAlerts.push(...alerts);
+			if (job.cancelled) throw new Error('ยกเลิกโดยผู้ใช้');
+			// Only fail the whole job when nothing could be scanned; otherwise keep
+			// the alerts we did get and note which targets failed.
+			if (allAlerts.length === 0 && errors.length > 0) {
+				throw new Error(errors.join(' | '));
+			}
+			if (errors.length > 0) {
+				console.warn(`[zap ${jobId}] ${errors.length} เป้าหมายล้มเหลว: ${errors.join(' | ')}`);
 			}
 			job.alerts = allAlerts;
 		} catch (err) {
@@ -342,9 +450,11 @@ export async function cancelScan(jobId) {
 		return false;
 	}
 	job.cancelled = true;
-	if (job.currentScanType && job.currentScanId != null) {
-		const stopPath = `/JSON/${job.currentScanType}/action/stop/`;
-		await zapGet(stopPath, { scanId: job.currentScanId }).catch(() => {});
+	// Stop every target's currently-running spider/active-scan.
+	for (const tr of job.targets.values()) {
+		if (tr.scanType && tr.scanId != null && !tr.done) {
+			await zapGet(`/JSON/${tr.scanType}/action/stop/`, { scanId: tr.scanId }).catch(() => {});
+		}
 	}
 	return true;
 }
