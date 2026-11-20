@@ -328,6 +328,78 @@ export async function getYearlyBreakdown() {
 	return [...byYear.values()].sort((a, b) => a.year - b.year);
 }
 
+// How many of the most recent buckets each period returns, so a long history
+// doesn't render hundreds of bars.
+const ACTIVITY_BUCKETS = { day: 90, week: 52, month: 36, year: 100 };
+
+/**
+ * Activity over time: for each period bucket (day / week / month / year, by
+ * each report's effective date — scanned_at when recoverable, else
+ * imported_at), how many reports were imported and how many findings were
+ * found, broken down by severity. Unlike the dashboard's other stats this
+ * spans the *whole* scan history (every round), since it answers "how much
+ * scanning happened when", not "what's the current state". False positives are
+ * excluded from the finding counts. Returns the most recent buckets only.
+ * @param {'day'|'week'|'month'|'year'} period
+ * @returns {Promise<Array<{ bucket: string, reports: number, total: number,
+ *   critical: number, high: number, medium: number, low: number, info: number }>>}
+ */
+export async function getActivityBreakdown(period = 'month') {
+	if (!Object.prototype.hasOwnProperty.call(ACTIVITY_BUCKETS, period)) {
+		throw new Error(`ช่วงเวลาไม่ถูกต้อง: ${period} (รองรับ day, week, month, year)`);
+	}
+
+	const [{ rows: sevRows }, { rows: repRows }] = await Promise.all([
+		pool.query(
+			`SELECT date_trunc($1, COALESCE(r.scanned_at, r.imported_at)) AS bucket,
+			        f.severity, COUNT(*)::int AS count
+			 FROM findings f
+			 JOIN reports r ON r.id = f.report_id
+			 WHERE ${NOT_FALSE_POSITIVE}
+			 GROUP BY bucket, f.severity`,
+			[period]
+		),
+		pool.query(
+			`SELECT date_trunc($1, COALESCE(r.scanned_at, r.imported_at)) AS bucket,
+			        COUNT(*)::int AS reports
+			 FROM reports r
+			 GROUP BY bucket`,
+			[period]
+		)
+	]);
+
+	/** @type {Map<string, object>} */
+	const byBucket = new Map();
+	const ensure = (iso) => {
+		if (!byBucket.has(iso)) {
+			byBucket.set(
+				iso,
+				Object.fromEntries([
+					['bucket', iso],
+					['reports', 0],
+					['total', 0],
+					...SEVERITY_ORDER.map((s) => [s, 0])
+				])
+			);
+		}
+		return byBucket.get(iso);
+	};
+
+	for (const row of repRows) {
+		if (!row.bucket) continue;
+		ensure(row.bucket.toISOString()).reports = row.reports;
+	}
+	for (const row of sevRows) {
+		if (!row.bucket) continue;
+		const entry = ensure(row.bucket.toISOString());
+		entry[row.severity] = row.count;
+		entry.total += row.count;
+	}
+
+	const all = [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
+	return all.slice(-ACTIVITY_BUCKETS[period]);
+}
+
 /**
  * Top domains by total finding count, scoped to each domain's latest scan
  * round only (not the full historical scan record) — powers the

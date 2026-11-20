@@ -77,6 +77,57 @@
 	}
 
 	const maxTopVulnCount = $derived(Math.max(1, ...topVulns.map((v) => v.count)));
+
+	// ---- Activity over time (daily / weekly / monthly / yearly) ----
+	const ACTIVITY_PERIODS = [
+		{ key: 'day', label: 'รายวัน' },
+		{ key: 'week', label: 'รายสัปดาห์' },
+		{ key: 'month', label: 'รายเดือน' },
+		{ key: 'year', label: 'รายปี' }
+	];
+	let activityPeriod = $state('month');
+	let activityLoading = $state(false);
+	let activity = $state(data.activity ?? []);
+	let showActivityTable = $state(false);
+
+	async function selectActivityPeriod(period) {
+		if (period === activityPeriod && activity.length) return;
+		activityPeriod = period;
+		activityLoading = true;
+		try {
+			const res = await fetch(`/api/dashboard/activity?period=${period}`);
+			const body = await res.json();
+			if (activityPeriod === period) activity = body.series ?? [];
+		} finally {
+			if (activityPeriod === period) activityLoading = false;
+		}
+	}
+
+	const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+	/** Short axis label for one bucket, by the selected period. */
+	function activityLabel(iso) {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		const be = d.getFullYear() + 543; // พ.ศ.
+		if (activityPeriod === 'year') return String(be);
+		if (activityPeriod === 'month') return `${THAI_MONTHS[d.getMonth()]} ${String(be).slice(-2)}`;
+		// day / week: the bucket's start date
+		return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]}`;
+	}
+
+	/** Full tooltip date for one bucket. */
+	function activityFullLabel(iso) {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		const base = `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
+		if (activityPeriod === 'week') return `สัปดาห์ของ ${base}`;
+		if (activityPeriod === 'month') return `${THAI_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`;
+		if (activityPeriod === 'year') return String(d.getFullYear() + 543);
+		return base;
+	}
+
+	const maxActivityTotal = $derived(Math.max(1, ...activity.map((a) => a.total)));
 </script>
 
 <svelte:head>
@@ -370,6 +421,106 @@
 											<td class="mono">{y[sev]}</td>
 										{/each}
 										<td class="mono">{y.total}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			{/if}
+		</div>
+
+		<div class="panel">
+			<div class="chart-head">
+				<h2>สถิติตามช่วงเวลา</h2>
+				<button class="button" onclick={() => (showActivityTable = !showActivityTable)}>
+					{showActivityTable ? 'ซ่อนตาราง' : 'ดูตาราง'}
+				</button>
+			</div>
+			<p class="sub" style="margin-top:0">
+				จำนวน findings และรายงานที่นำเข้าในแต่ละช่วงเวลา (ครอบทุกรอบสแกน ไม่ใช่เฉพาะรอบล่าสุด)
+			</p>
+
+			<div class="period-tabs">
+				{#each ACTIVITY_PERIODS as p (p.key)}
+					<button
+						type="button"
+						class="button"
+						class:active={activityPeriod === p.key}
+						disabled={activityLoading}
+						onclick={() => selectActivityPeriod(p.key)}
+					>
+						{p.label}
+					</button>
+				{/each}
+			</div>
+
+			{#if activityLoading}
+				<div class="empty">กำลังโหลด...</div>
+			{:else if activity.length === 0}
+				<div class="empty">ยังไม่มีข้อมูลในช่วงเวลานี้</div>
+			{:else}
+				<div class="legend">
+					{#each SEVERITY_ORDER as sev}
+						<span class="legend-item">
+							<span class="legend-swatch sev-fill-{sev}"></span>
+							{SEVERITY_LABEL[sev]}
+						</span>
+					{/each}
+				</div>
+
+				<div class="chart-plot vbar-chart">
+					{#each activity as a (a.bucket)}
+						<div class="vbar-col">
+							<div class="vbar-stack" style="height:{(a.total / maxActivityTotal) * 100}%">
+								{#each SEVERITY_ORDER as sev}
+									{#if a[sev] > 0}
+										<div
+											class="vbar-seg sev-fill-{sev}"
+											style="flex-grow:{a[sev]}"
+											role="img"
+											aria-label="{activityFullLabel(a.bucket)} {SEVERITY_LABEL[sev]}: {a[sev]}"
+											onmousemove={(e) =>
+												showTooltip(e, `${activityFullLabel(a.bucket)} · ${SEVERITY_LABEL[sev]}: ${a[sev]}`)}
+											onmouseleave={hideTooltip}
+										></div>
+									{/if}
+								{/each}
+							</div>
+							<div class="vbar-total mono">{a.total}</div>
+							<div class="vbar-axis mono">{activityLabel(a.bucket)}</div>
+						</div>
+					{/each}
+
+					{#if tooltip}
+						<div class="chart-tooltip" style="left:{tooltip.x}px; top:{tooltip.y}px">
+							{tooltip.text}
+						</div>
+					{/if}
+				</div>
+
+				{#if showActivityTable}
+					<div class="scroll" style="margin-top:1rem">
+						<table>
+							<thead>
+								<tr>
+									<th>ช่วงเวลา</th>
+									{#each SEVERITY_ORDER as sev}
+										<th>{SEVERITY_LABEL[sev]}</th>
+									{/each}
+									<th>Total</th>
+									<th>รายงาน</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each [...activity].reverse() as a (a.bucket)}
+									<tr>
+										<td class="mono">{activityFullLabel(a.bucket)}</td>
+										{#each SEVERITY_ORDER as sev}
+											<td class="mono">{a[sev]}</td>
+										{/each}
+										<td class="mono">{a.total}</td>
+										<td class="mono">{a.reports}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -703,5 +854,16 @@
 		font-size: 1.05rem;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+	}
+	.period-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+	}
+	.period-tabs .button.active {
+		background: var(--accent);
+		color: #fff;
+		border-color: var(--accent);
 	}
 </style>
