@@ -43,7 +43,14 @@ services:
         condition: service_healthy
 
   nginx:
-    image: nginx:1.27-alpine
+    # Bumped off the 1.27 line for NGINX2Root / CVE-2026-123007 (HTTP/2
+    # memory-corruption RCE, CVSSv4 9.2, disclosed 2026-11-18): every nginx
+    # from 1.9.5 to 1.31.8 with HTTP/2 enabled is affected, and this proxy
+    # runs `http2 on`. Fixed in the 1.30.7 / 1.31.9 releases; 1.30-alpine is
+    # the patched stable line (currently 1.30.7) and keeps the floating tag so
+    # refresh-images.sh still auto-pulls later patches. A `docker pull` is
+    # required on deploy to fetch the fixed image.
+    image: nginx:1.30-alpine
     restart: unless-stopped
     depends_on:
       - app
