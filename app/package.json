@@ -23,6 +23,8 @@
 		"vitest": "^4.1.11"
 	},
 	"dependencies": {
+		"@simplewebauthn/browser": "^14.0.0",
+		"@simplewebauthn/server": "^14.1.0",
 		"adm-zip": "^0.6.0",
 		"cheerio": "^1.2.0",
 		"pdfkit": "^0.19.1",

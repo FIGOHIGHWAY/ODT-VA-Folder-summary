@@ -59,6 +59,7 @@
 					<span class="topbar-role">({data.user.role})</span>
 				</span>
 				<a class="topbar-link" href="/ai-key">{t($lang, 'nav_ai_key')}</a>
+				<a class="topbar-link" href="/passkeys">🔐 Passkey</a>
 				{#if data.user.role === 'admin' || data.user.role === 'soc'}
 					<a class="topbar-link" href="/scan">{t($lang, 'nav_scan')}</a>
 					<a class="topbar-link" href="/hosts">🖧 ทะเบียน Host</a>

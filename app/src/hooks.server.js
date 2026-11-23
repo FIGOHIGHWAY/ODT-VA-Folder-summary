@@ -36,7 +36,13 @@ export async function handle({ event, resolve }) {
 		try {
 			const session = await getSession(sessionId);
 			event.locals.user = session
-				? { sub: session.sub, name: session.name, email: session.email, role: session.role }
+				? {
+						sub: session.sub,
+						name: session.name,
+						email: session.email,
+						role: session.role,
+						mfaStatus: session.mfa_status
+					}
 				: null;
 		} catch {
 			// DB unreachable — treat as logged out rather than failing the request.
@@ -60,6 +66,28 @@ export async function handle({ event, resolve }) {
 			status: 302,
 			headers: { location: `/login?returnTo=${returnTo}` }
 		});
+	}
+
+	// Logged in via SSO but not yet through MFA: confine the session to the MFA
+	// flow (and logout) until it clears. Everything else bounces to /mfa, and
+	// APIs get 401 — so no gated route or data is reachable on a half-auth
+	// session. The /mfa page and its APIs are the only app routes allowed here.
+	if (event.locals.user && event.locals.user.mfaStatus && event.locals.user.mfaStatus !== 'verified') {
+		const mfaAllowed =
+			pathname === '/mfa' ||
+			pathname.startsWith('/api/mfa/') ||
+			pathname === '/logout' ||
+			isPublicPath(pathname);
+		if (!mfaAllowed) {
+			if (pathname.startsWith('/api/')) {
+				return new Response(JSON.stringify({ error: 'ต้องยืนยันตัวตนขั้นที่สอง (MFA) ก่อน' }), {
+					status: 401,
+					headers: { 'Content-Type': 'application/json' }
+				});
+			}
+			const returnTo = encodeURIComponent(pathname + search);
+			return new Response(null, { status: 302, headers: { location: `/mfa?returnTo=${returnTo}` } });
+		}
 	}
 
 	const gate = findRoleGate(pathname);

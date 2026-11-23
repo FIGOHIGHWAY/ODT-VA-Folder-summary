@@ -7,6 +7,7 @@ import {
 } from '$lib/server/oauth.js';
 import { createSession, SESSION_COOKIE } from '$lib/server/session.js';
 import { isEmailInAllowedUsers, getAllowedUserRole } from '$lib/server/db.js';
+import { countCredentials } from '$lib/server/webauthn.js';
 
 const RETURN_TO_COOKIE = 'oauth_return_to';
 
@@ -43,7 +44,13 @@ export async function GET({ url, cookies }) {
 	}
 
 	const role = await resolveRole(profile.email, getAllowedUserRole);
-	const session = await createSession({ ...profile, role });
+
+	// SSO is the first factor; the session is not fully authenticated until it
+	// also clears MFA. A user with a passkey must assert it; one without must
+	// enroll one first.
+	const hasPasskey = (await countCredentials(profile.sub)) > 0;
+	const mfaStatus = hasPasskey ? 'pending_verify' : 'pending_enroll';
+	const session = await createSession({ ...profile, role, mfaStatus });
 
 	cookies.set(SESSION_COOKIE, session.id, {
 		path: '/',
@@ -53,8 +60,9 @@ export async function GET({ url, cookies }) {
 		expires: session.expiresAt
 	});
 
+	// Finish SSO at the MFA step, keeping the intended destination for after it.
 	const returnTo = cookies.get(RETURN_TO_COOKIE) || '/';
 	cookies.delete(RETURN_TO_COOKIE, { path: '/' });
 
-	throw redirect(302, returnTo);
+	throw redirect(302, `/mfa?returnTo=${encodeURIComponent(returnTo)}`);
 }
