@@ -65,26 +65,26 @@ function runPin(command) {
 }
 
 /**
- * Health snapshot for the tool-status panel: ZAP's API version plus the VM's
- * disk/RAM via the pin helper's read-only "stats" action. Each part fails
- * independently so a dead API still shows the VM's disk (and vice versa).
- * @returns {Promise<{ version: string|null, apiError: string|null, stats: string|null, statsError: string|null }>}
+ * Service check for the tool-status panel: does ZAP's API answer, and which
+ * version. (The VM's disk/RAM/CPU come from the resource monitor.)
+ * @returns {Promise<{ version: string|null, apiError: string|null }>}
  */
 export async function getZapHealth() {
-	const [ver, stats] = await Promise.allSettled([
-		zapGet('/JSON/core/view/version/', {}, 8000),
-		runPin('stats')
-	]);
-	return {
-		version: ver.status === 'fulfilled' ? ver.value.version ?? null : null,
-		apiError: ver.status === 'rejected' ? errText(ver.reason) : null,
-		stats: stats.status === 'fulfilled' ? stats.value : null,
-		statsError: stats.status === 'rejected' ? errText(stats.reason) : null
-	};
+	try {
+		const { version } = await zapGet('/JSON/core/view/version/', {}, 8000);
+		return { version: version ?? null, apiError: null };
+	} catch (e) {
+		return { version: null, apiError: errText(e) };
+	}
 }
 
 function errText(e) {
 	return e instanceof Error ? e.message : String(e);
+}
+
+/** Raw host stats (DISK/MEM/CPUUSEC/NCPU lines) from the ZAP VM's pin helper. */
+export function zapHostStats() {
+	return runPin('stats');
 }
 
 /** The VM ZAP runs on (its API is reached through a local tunnel). */

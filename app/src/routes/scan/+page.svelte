@@ -626,6 +626,7 @@
 				{#if toolStatus}ตรวจเมื่อ {new Date(toolStatus.checkedAt).toLocaleTimeString('th-TH', { timeStyle: 'short' })} · อัปเดตทุก 1 นาที{/if}
 			</span>
 			<span class="spacer"></span>
+			<a class="button ghost" href="/monitor">📈 ดูกราฟย้อนหลัง</a>
 			<button type="button" class="button ghost" disabled={toolStatusLoading} onclick={() => loadToolStatus(true)}>
 				{toolStatusLoading ? '⏳ กำลังตรวจ...' : '🔄 ตรวจตอนนี้'}
 			</button>
@@ -662,7 +663,13 @@
 						{#if vm.mem}
 							<div class="vm-row">
 								<span>RAM {vm.mem.usedPct}%</span>
-								<span class="hint">จาก {vm.mem.totalGb} GB{vm.cpus ? ` · ${vm.cpus} CPU` : ''}</span>
+								<span class="hint">จาก {vm.mem.totalGb} GB</span>
+							</div>
+						{/if}
+						{#if vm.cpuPct != null}
+							<div class="vm-row">
+								<span>CPU {vm.cpuPct}%</span>
+								<span class="hint">{vm.cpus ? `${vm.cpus} CPU` : ''}</span>
 							</div>
 						{/if}
 						{#each vm.facts as f}

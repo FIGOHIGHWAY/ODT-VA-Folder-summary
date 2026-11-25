@@ -62,6 +62,22 @@
 				<a class="topbar-link" href="/passkeys">🔐 Passkey</a>
 				{#if data.user.role === 'admin' || data.user.role === 'soc'}
 					<a class="topbar-link" href="/scan">{t($lang, 'nav_scan')}</a>
+					<a
+						class="topbar-link"
+						href="/monitor"
+						title={data.monitorAlerts?.length
+							? data.monitorAlerts.map((a) => `${a.name}: ${a.reasons.join(', ')}`).join('\n')
+							: 'ดิสก์ RAM CPU ของเครื่องสแกน'}
+					>
+						📈 Monitor
+						{#if data.monitorAlerts?.length}
+							<span
+								class="alert-badge"
+								class:crit={data.monitorAlerts.some((a) => a.state !== 'warn')}
+								aria-label="{data.monitorAlerts.length} เครื่องต้องดู">{data.monitorAlerts.length}</span
+							>
+						{/if}
+					</a>
 					<a class="topbar-link" href="/hosts">🖧 ทะเบียน Host</a>
 				{/if}
 				{#if data.user.role === 'admin'}
@@ -131,6 +147,24 @@
 	}
 	.topbar-link:hover {
 		text-decoration: underline;
+	}
+	.alert-badge {
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.15rem;
+		height: 1.15rem;
+		padding: 0 0.3rem;
+		margin-left: 0.15rem;
+		border-radius: 999px;
+		background: #e0b050;
+		color: #1a1300;
+		font-size: 0.68rem;
+		font-weight: 700;
+		vertical-align: 1px;
+	}
+	.alert-badge.crit {
+		background: #f16a6a;
+		color: #fff;
 	}
 	.topbar-menu {
 		position: relative;

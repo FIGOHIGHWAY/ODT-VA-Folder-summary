@@ -38,6 +38,11 @@ services:
       # Forced-command key for the ZAP-VM DNS-pin helper (see lib/server/zap.js):
       # lets a scan resolve a vhost name to a chosen IP for its duration.
       - ./zap-keys:/keys/zap:ro
+      # Read-only view of this host's cgroup tree, so the resource monitor
+      # (lib/server/monitor.js) can report the host's real CPU and RAM use.
+      # On an LXC guest, /proc inside a container shows the whole Proxmox
+      # server instead; without this mount the monitor falls back to /proc.
+      - /sys/fs/cgroup:/host/cgroup:ro
     depends_on:
       db:
         condition: service_healthy

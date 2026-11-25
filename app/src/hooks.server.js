@@ -1,4 +1,6 @@
+import { building, dev } from '$app/environment';
 import { getSession, SESSION_COOKIE } from '$lib/server/session.js';
+import { startMonitor } from '$lib/server/monitor.js';
 import {
 	canUpload,
 	canGenerateReport,
@@ -6,6 +8,10 @@ import {
 	canManageSettings,
 	canExport
 } from '$lib/server/permissions.js';
+
+// Sample disk / RAM / CPU of every scanner VM and this host once a minute
+// for /monitor. Prod only: dev machines have neither the keys nor the VMs.
+if (!building && !dev) startMonitor();
 
 // Paths reachable without being logged in: the SSO round trip itself, and
 // build/static assets (the client JS/CSS bundle, favicon, etc).
