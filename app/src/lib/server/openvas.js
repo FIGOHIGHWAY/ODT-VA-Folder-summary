@@ -24,7 +24,7 @@ function config() {
  * @param {string[]} commands
  * @returns {Promise<string[]>}
  */
-function gmpSession(commands) {
+function gmpSession(commands, timeoutMs = 60000) {
 	const { host, port, username, password } = config();
 	const authCmd = `<authenticate><credentials><username>${escapeXml(username)}</username><password>${escapeXml(password)}</password></credentials></authenticate>`;
 	const allCommands = [authCmd, ...commands];
@@ -42,7 +42,7 @@ function gmpSession(commands) {
 				socket.destroy();
 				reject(new Error('GMP session timed out'));
 			}
-		}, 60000);
+		}, timeoutMs);
 
 		function sendNext() {
 			if (commandIndex >= allCommands.length) {
@@ -155,6 +155,34 @@ export async function getReportXml(reportId) {
 		`<get_reports report_id="${reportId}" details="1" ignore_pagination="1"/>`
 	]);
 	return res;
+}
+
+/**
+ * Health snapshot for the tool-status panel: the GMP protocol version, the
+ * NVT feed's version (a YYYYMMDDHHMM timestamp of the last feed update) and
+ * whether a feed sync is running, plus how many tasks are running now.
+ * @returns {Promise<{ gmpVersion: string|null, feedVersion: string|null, feedSyncing: boolean, runningTasks: number|null }>}
+ */
+export async function getOpenvasHealth() {
+	const [, verRes, feedRes, taskRes] = await gmpSession(
+		['<get_version/>', '<get_feeds/>', '<get_tasks filter="status=Running rows=-1"/>'],
+		10000
+	);
+	const nvtFeed =
+		[...feedRes.matchAll(/<feed>([\s\S]*?)<\/feed>/g)].map((m) => m[1]).find((f) => /<type>NVT<\/type>/.test(f)) ??
+		null;
+	const runningTasks = taskRes.match(/<task_count>\s*<filtered>(\d+)<\/filtered>/)?.[1];
+	return {
+		gmpVersion: verRes.match(/<version>([^<]*)<\/version>/)?.[1] ?? null,
+		feedVersion: nvtFeed?.match(/<version>([^<]*)<\/version>/)?.[1] ?? null,
+		feedSyncing: Boolean(nvtFeed && /<currently_syncing>/.test(nvtFeed)),
+		runningTasks: runningTasks != null ? Number(runningTasks) : null
+	};
+}
+
+/** The VM OpenVAS runs on (GMP is reached through a local SSH tunnel). */
+export function openvasVmHost() {
+	return env.OPENVAS_VM_HOST || '10.101.118.177';
 }
 
 /**

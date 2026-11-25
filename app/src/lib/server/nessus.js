@@ -109,6 +109,42 @@ export async function getScanStatus(scanId) {
 }
 
 /**
+ * Health snapshot for the tool-status panel (read-only endpoints): server
+ * state, version, loaded plugin set and license expiry.
+ * @returns {Promise<{ status: string, version: string|null, pluginSet: string|null, licenseExpires: number|null, scanApi: boolean|null }>}
+ */
+export async function getNessusHealth() {
+	const withTimeout = (p) =>
+		Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Nessus ไม่ตอบภายใน 8 วินาที')), 8000))]);
+	const status = JSON.parse(await withTimeout(nessusFetch('/server/status')));
+	/** @type {any} */
+	let props = {};
+	try {
+		props = JSON.parse(await withTimeout(nessusFetch('/server/properties')));
+	} catch {
+		// Properties are a nice-to-have; the status call already proves liveness.
+	}
+	const expires = Number(props.license?.expiration_date ?? props.expiration ?? NaN);
+	const scanApi = props.license?.features?.scan_api;
+	return {
+		status: status.status ?? 'unknown',
+		version: props.nessus_ui_version ?? props.server_version ?? null,
+		pluginSet: props.loaded_plugin_set ?? props.plugin_set ?? null,
+		licenseExpires: Number.isFinite(expires) ? expires : null,
+		scanApi: typeof scanApi === 'boolean' ? scanApi : null
+	};
+}
+
+/** The VM Nessus runs on. */
+export function nessusVmHost() {
+	try {
+		return env.NESSUS_URL ? new URL(env.NESSUS_URL).hostname : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Request an HTML export of a completed scan and wait for it to be ready,
  * then download and return the HTML content.
  * @param {number} scanId

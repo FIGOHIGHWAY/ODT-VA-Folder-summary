@@ -181,6 +181,47 @@ export function startScan(groups, cveId, onFinish) {
 	return jobId;
 }
 
+/**
+ * Health snapshot for the tool-status panel: nuclei's version and the VM's
+ * disk/RAM, in one SSH round trip. Lines are prefixed (VER/DISK/CPU/MEM) so
+ * the shared parser in toolStatus.js can read them.
+ * @returns {Promise<string>} raw prefixed output
+ */
+export function getNucleiHealth() {
+	const { host, user, keyPath } = config();
+	const remote = [
+		`echo "VER $(nuclei -version 2>&1 | grep -oiE 'v[0-9]+\\.[0-9]+\\.[0-9]+' | head -1)"`,
+		'echo "DISK $(df -P / | tail -1)"',
+		'echo "CPU $(nproc)"',
+		'echo "MEM $(free -m | sed -n 2p)"'
+	].join('; ');
+	return new Promise((resolve, reject) => {
+		const ssh = spawn(
+			'ssh',
+			['-i', keyPath, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=6', `${user}@${host}`, remote],
+			{ stdio: ['ignore', 'pipe', 'pipe'] }
+		);
+		let out = '';
+		let err = '';
+		const timer = setTimeout(() => ssh.kill(), 10000);
+		ssh.stdout.on('data', (d) => (out += d.toString('utf-8')));
+		ssh.stderr.on('data', (d) => (err += d.toString('utf-8')));
+		ssh.on('close', (code) => {
+			clearTimeout(timer);
+			code === 0 ? resolve(out) : reject(new Error((err || `ssh exited with code ${code}`).trim().slice(0, 200)));
+		});
+		ssh.on('error', (e) => {
+			clearTimeout(timer);
+			reject(e);
+		});
+	});
+}
+
+/** The VM nuclei runs on. */
+export function nucleiVmHost() {
+	return env.NUCLEI_SSH_HOST || null;
+}
+
 /** Only allow characters safe to embed unquoted-adjacent in the remote command; wrap the rest in single quotes. */
 function shellQuote(str) {
 	return `'${String(str).replace(/'/g, `'\\''`)}'`;

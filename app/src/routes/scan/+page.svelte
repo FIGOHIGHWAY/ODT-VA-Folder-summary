@@ -1,5 +1,5 @@
 <script>
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { lang, t } from '$lib/i18n.js';
 	import nessusLogo from '$lib/assets/tools/nessus-logo.png';
@@ -48,6 +48,35 @@
 		return new Date(d).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
 	}
 
+	// ---- Scanner VM health -------------------------------------------------
+	const VM_STATE_LABEL = { ok: 'ปกติ', warn: 'ควรตรวจสอบ', down: 'ติดต่อไม่ได้' };
+	/** @type {{ tools: any[], checkedAt: string } | null} */
+	let toolStatus = $state(null);
+	let toolStatusLoading = $state(false);
+	let toolStatusError = $state('');
+	let toolStatusTimer = null;
+	const vmById = $derived(Object.fromEntries((toolStatus?.tools ?? []).map((t) => [t.id, t])));
+
+	async function loadToolStatus(force = false) {
+		toolStatusLoading = true;
+		toolStatusError = '';
+		try {
+			const res = await fetch(`/api/tools/status${force ? '?refresh=1' : ''}`);
+			const body = await res.json();
+			if (!res.ok) throw new Error(body.error ?? 'ตรวจสถานะไม่สำเร็จ');
+			toolStatus = body;
+		} catch (err) {
+			toolStatusError = err instanceof Error ? err.message : String(err);
+		} finally {
+			toolStatusLoading = false;
+		}
+	}
+
+	onMount(() => {
+		loadToolStatus();
+		toolStatusTimer = setInterval(() => loadToolStatus(), 60_000);
+	});
+
 	// ---- Live status sidebar ----------------------------------------------
 	const runningJobs = $derived(data.jobs.filter((j) => j.status === 'running'));
 	const recentJobs = $derived(data.jobs.filter((j) => j.status !== 'running').slice(0, 6));
@@ -67,6 +96,7 @@
 	});
 	onDestroy(() => {
 		if (refreshTimer) clearInterval(refreshTimer);
+		if (toolStatusTimer) clearInterval(toolStatusTimer);
 		stopOpenvasPoll();
 		stopZapPoll();
 		stopNucleiPoll();
@@ -588,6 +618,65 @@
 		{/if}
 	</div>
 
+	<!-- ================= Scanner VM health ================= -->
+	<section class="vm-panel" aria-label="สถานะเครื่องมือ">
+		<div class="vm-head">
+			<h2>สถานะเครื่องมือ</h2>
+			<span class="hint">
+				{#if toolStatus}ตรวจเมื่อ {new Date(toolStatus.checkedAt).toLocaleTimeString('th-TH', { timeStyle: 'short' })} · อัปเดตทุก 1 นาที{/if}
+			</span>
+			<span class="spacer"></span>
+			<button type="button" class="button ghost" disabled={toolStatusLoading} onclick={() => loadToolStatus(true)}>
+				{toolStatusLoading ? '⏳ กำลังตรวจ...' : '🔄 ตรวจตอนนี้'}
+			</button>
+		</div>
+		{#if toolStatusError}
+			<div class="err-box">{toolStatusError}</div>
+		{/if}
+		<div class="vm-grid">
+			{#if !toolStatus}
+				{#each ['OWASP ZAP', 'OpenVAS', 'Nuclei', 'Nessus'] as name}
+					<div class="vm-card loading"><b>{name}</b><span class="hint">กำลังตรวจ...</span></div>
+				{/each}
+			{:else}
+				{#each toolStatus.tools as vm (vm.id)}
+					<div class="vm-card {vm.state}">
+						<div class="vm-top">
+							<span class="vm-dot {vm.state}" aria-hidden="true"></span>
+							<b>{vm.name}</b>
+							<span class="spacer"></span>
+							<span class="vm-state {vm.state}">{VM_STATE_LABEL[vm.state] ?? vm.state}</span>
+						</div>
+						<div class="vm-meta mono">
+							{vm.host ?? '—'}{vm.version ? ` · ${vm.version}` : ''}
+						</div>
+						{#if vm.disk}
+							<div class="vm-row">
+								<span>ดิสก์ {vm.disk.usedPct}%</span>
+								<span class="hint">เหลือ {vm.disk.freeGb} / {vm.disk.totalGb} GB</span>
+							</div>
+							<div class="bar bar-sm vm-bar" class:warn={vm.disk.usedPct >= 85}>
+								<i style="width:{vm.disk.usedPct}%"></i>
+							</div>
+						{/if}
+						{#if vm.mem}
+							<div class="vm-row">
+								<span>RAM {vm.mem.usedPct}%</span>
+								<span class="hint">จาก {vm.mem.totalGb} GB{vm.cpus ? ` · ${vm.cpus} CPU` : ''}</span>
+							</div>
+						{/if}
+						{#each vm.facts as f}
+							<div class="vm-row"><span class="hint">{f.label}</span><span class="vm-fact">{f.value}</span></div>
+						{/each}
+						{#each vm.notes as n}
+							<div class="vm-note {vm.state}">{n}</div>
+						{/each}
+					</div>
+				{/each}
+			{/if}
+		</div>
+	</section>
+
 	<div class="split">
 		<!-- ================= Left: scan form ================= -->
 		<section class="panel">
@@ -606,7 +695,15 @@
 							<b>{tab.label}</b>
 							<small>{tab.sub}</small>
 						</span>
-						{#if busy(tab.status)}<span class="dot" aria-label="กำลังสแกน"></span>{/if}
+						{#if busy(tab.status)}
+							<span class="dot" aria-label="กำลังสแกน"></span>
+						{:else if vmById[tab.id] && vmById[tab.id].state !== 'ok'}
+							<span
+								class="vm-dot {vmById[tab.id].state}"
+								title="เครื่อง {VM_STATE_LABEL[vmById[tab.id].state]}"
+								aria-label="เครื่อง {VM_STATE_LABEL[vmById[tab.id].state]}"
+							></span>
+						{/if}
 					</button>
 				{/each}
 			</div>
@@ -1065,6 +1162,136 @@
 	h2 {
 		font-size: 1rem;
 		margin: 0;
+	}
+
+	/* Scanner VM health strip */
+	.vm-panel {
+		margin-bottom: 1.25rem;
+	}
+	.vm-head {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.6rem;
+	}
+	.vm-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 0.75rem;
+	}
+	@media (max-width: 960px) {
+		.vm-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+	@media (max-width: 520px) {
+		.vm-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+	.vm-card {
+		background: var(--panel-bg, var(--code-bg));
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 0.75rem 0.9rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		min-width: 0;
+		font-size: 0.82rem;
+	}
+	.vm-card.warn {
+		border-color: rgba(224, 176, 80, 0.55);
+	}
+	.vm-card.down {
+		border-color: rgba(241, 154, 154, 0.6);
+	}
+	.vm-card.loading {
+		opacity: 0.6;
+	}
+	.vm-top {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+	.vm-top b {
+		font-size: 0.9rem;
+	}
+	.vm-dot {
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		flex: none;
+		background: var(--muted);
+	}
+	.vm-dot.ok {
+		background: #3ecd7a;
+	}
+	.vm-dot.warn {
+		background: #e0b050;
+	}
+	.vm-dot.down {
+		background: #f16a6a;
+	}
+	.vm-state {
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 0.1rem 0.5rem;
+		border-radius: 999px;
+		white-space: nowrap;
+	}
+	.vm-state.ok {
+		background: #16321f;
+		color: #8be3a6;
+	}
+	.vm-state.warn {
+		background: rgba(224, 176, 80, 0.15);
+		color: #e0b050;
+	}
+	.vm-state.down {
+		background: #3a1a1a;
+		color: #f19a9a;
+	}
+	.vm-meta {
+		color: var(--muted);
+		font-size: 0.74rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.vm-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.5rem;
+		align-items: baseline;
+		font-variant-numeric: tabular-nums;
+	}
+	.vm-fact {
+		text-align: right;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.vm-bar.warn i {
+		background: #e0b050;
+	}
+	.vm-note {
+		font-size: 0.74rem;
+		line-height: 1.4;
+		padding: 0.3rem 0.45rem;
+		border-radius: 6px;
+		overflow-wrap: anywhere;
+	}
+	.vm-note.warn {
+		background: rgba(224, 176, 80, 0.12);
+		color: #e0b050;
+	}
+	.vm-note.down {
+		background: rgba(241, 154, 154, 0.1);
+		color: #f19a9a;
+	}
+	.vm-note.ok {
+		color: var(--muted);
 	}
 
 	/* Two columns: form | live status. Stacks on narrow screens. */

@@ -64,12 +64,40 @@ function runPin(command) {
 	});
 }
 
-async function zapGet(path, params = {}) {
+/**
+ * Health snapshot for the tool-status panel: ZAP's API version plus the VM's
+ * disk/RAM via the pin helper's read-only "stats" action. Each part fails
+ * independently so a dead API still shows the VM's disk (and vice versa).
+ * @returns {Promise<{ version: string|null, apiError: string|null, stats: string|null, statsError: string|null }>}
+ */
+export async function getZapHealth() {
+	const [ver, stats] = await Promise.allSettled([
+		zapGet('/JSON/core/view/version/', {}, 8000),
+		runPin('stats')
+	]);
+	return {
+		version: ver.status === 'fulfilled' ? ver.value.version ?? null : null,
+		apiError: ver.status === 'rejected' ? errText(ver.reason) : null,
+		stats: stats.status === 'fulfilled' ? stats.value : null,
+		statsError: stats.status === 'rejected' ? errText(stats.reason) : null
+	};
+}
+
+function errText(e) {
+	return e instanceof Error ? e.message : String(e);
+}
+
+/** The VM ZAP runs on (its API is reached through a local tunnel). */
+export function zapVmHost() {
+	return env.ZAP_PIN_SSH_HOST || null;
+}
+
+async function zapGet(path, params = {}, timeoutMs = 0) {
 	const { baseUrl, apiKey } = config();
 	const url = new URL(path, baseUrl);
 	url.searchParams.set('apikey', apiKey);
 	for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-	const res = await fetch(url);
+	const res = await fetch(url, timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : undefined);
 	if (!res.ok) {
 		const body = await res.text().catch(() => '');
 		throw new Error(`ZAP API ${path} failed: ${res.status} ${body.slice(0, 300)}`);
