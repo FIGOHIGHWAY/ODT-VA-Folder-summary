@@ -1,0 +1,86 @@
+# Runs on every push and pull request. The prod auto-deploy
+# (ops/auto-deploy.sh) only deploys a commit on main once this workflow,
+# named "CI", has passed for it — so keep the name in sync with
+# CI_WORKFLOW_PATH there if you rename or move this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  migrations:
+    name: Migrations apply on a fresh database
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: va_scan
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply every migration in order
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for f in $(ls app/migrations/*.sql | sort); do
+            echo "::group::$f"
+            psql -h localhost -U postgres -d va_scan -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+      - name: Migrations are re-runnable where they claim to be
+        env:
+          PGPASSWORD: postgres
+        # Prod applies each new migration by hand once; this only guards the
+        # newest one against typos that would fail on a second, accidental run.
+        run: |
+          latest=$(ls app/migrations/*.sql | sort | tail -1)
+          if grep -qiE 'CREATE (TABLE|INDEX) IF NOT EXISTS|ADD COLUMN IF NOT EXISTS' "$latest"; then
+            psql -h localhost -U postgres -d va_scan -v ON_ERROR_STOP=1 -f "$latest"
+          else
+            echo "skip: $latest is not written to be re-runnable"
+          fi
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the app image prod uses
+        run: docker build -t va-scan-app:ci ./app

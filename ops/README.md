@@ -8,6 +8,7 @@
 | Rebuild on fresh postgres / nginx / node images | once a week, ~03:00 Bangkok (cron) | `ops/refresh-images.sh` |
 | Ubuntu security updates | daily, 02:30 Bangkok | `unattended-upgrades` (no automatic reboot) |
 | npm / Docker base-image updates | weekly pull requests | Dependabot (`.github/dependabot.yml`) |
+| Tests, build, migrations, Docker build | every push and pull request | GitHub Actions (`.github/workflows/ci.yml`) |
 
 Every deploy, skip and rollback is written to `logs/deploy.log` on the server:
 
@@ -15,6 +16,13 @@ Every deploy, skip and rollback is written to `logs/deploy.log` on the server:
 
 ## Rules the deploy script follows
 
+- **Deploys only commits CI passed.** Every push runs `.github/workflows/ci.yml`
+  on GitHub Actions: unit tests, the production build, every migration on a
+  fresh PostgreSQL 16, and the Docker image build. The deploy waits while CI
+  is running and skips a commit whose CI failed (logged as `SKIP … CI failed`).
+  If GitHub's API is unreachable it waits; to deploy anyway, `touch
+  logs/.skip-ci` (and `rm` it afterwards). Check CI by hand before a manual
+  deploy: https://github.com/FIGOHIGHWAY/ODT-VA-Folder-summary/actions
 - **Never restarts while a scan is running.** It waits and retries on the next
   tick.
 - **Holds commits that touch `app/migrations/`.** Migrations are applied by

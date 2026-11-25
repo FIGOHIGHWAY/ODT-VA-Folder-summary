@@ -2,6 +2,8 @@
 # Pull-based auto-deploy, run from cron every 5 minutes on the prod host.
 #
 # Deploys origin/$DEPLOY_BRANCH (default main) whenever it moves, except:
+#   - until GitHub Actions "CI" has passed for that commit (a failed CI is
+#     skipped until a newer commit arrives);
 #   - while a scan is running (a restart drops its in-memory tracking) —
 #     retried on the next tick;
 #   - when the update adds a DB migration — those are applied by hand, so the
@@ -33,6 +35,25 @@ main() {
 
 	if [ "$(cat logs/.bad-target 2>/dev/null)" = "$target" ]; then
 		exit 0
+	fi
+	# Only deploy what CI (tests, build, migrations, Docker image) passed.
+	# `touch logs/.skip-ci` bypasses this, e.g. while GitHub is down.
+	if [ ! -e logs/.skip-ci ]; then
+		case "$(ci_state "$target")" in
+		success) ;;
+		failure)
+			log_once "$target ci-failed" "SKIP $short: CI failed — fix and push a new commit (https://github.com/$(ci_repo)/commit/$target)"
+			exit 0
+			;;
+		pending)
+			log_once "$target ci-pending" "WAIT $short: CI has not finished yet"
+			exit 0
+			;;
+		*)
+			log_once "$target ci-unknown" "WAIT $short: cannot read CI status from GitHub — will retry (touch logs/.skip-ci to bypass)"
+			exit 0
+			;;
+		esac
 	fi
 	if git diff --name-only "$current" "$target" -- app/migrations | grep -q .; then
 		log_once "$target migration" "HOLD $short: brings a new DB migration — apply it and deploy by hand"

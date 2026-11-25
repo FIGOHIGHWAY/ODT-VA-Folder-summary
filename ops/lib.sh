@@ -49,6 +49,35 @@ app_healthy() {
 	return 1
 }
 
+# Result of the GitHub Actions "CI" workflow (.github/workflows/ci.yml) for a
+# commit: success | failure | pending | unknown. The repo is public, so the
+# API needs no token (60 requests/hour per IP; the deploy only asks while a
+# new commit is waiting). Plain grep instead of jq/python so it needs nothing
+# beyond curl on the host.
+CI_WORKFLOW_PATH=.github/workflows/ci.yml
+
+ci_repo() {
+	git config --get remote.origin.url | sed -E 's#^(https://github.com/|git@github.com:)##; s#\.git$##'
+}
+
+ci_count() { # <sha> <status filter> → number of matching CI runs, or empty on API error
+	local json
+	json=$(curl -fsS --max-time 15 -H 'Accept: application/vnd.github+json' \
+		"https://api.github.com/repos/$(ci_repo)/actions/runs?head_sha=$1&status=$2&per_page=50" 2>/dev/null) || return 0
+	printf '%s\n' "$json" | grep -c "\"path\": \"$CI_WORKFLOW_PATH" || true
+}
+
+ci_state() {
+	local sha=$1 ok done
+	command -v curl >/dev/null || { echo unknown; return; }
+	ok=$(ci_count "$sha" success)
+	[ -z "$ok" ] && { echo unknown; return; }
+	[ "$ok" -gt 0 ] && { echo success; return; }
+	done=$(ci_count "$sha" completed)
+	[ -n "$done" ] && [ "$done" -gt 0 ] && { echo failure; return; }
+	echo pending
+}
+
 # The root disk is small (~8 GB); drop build cache and dangling images after
 # every rebuild or it fills up within weeks.
 cleanup_docker() {
