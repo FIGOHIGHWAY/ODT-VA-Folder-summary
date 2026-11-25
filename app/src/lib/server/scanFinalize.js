@@ -45,13 +45,35 @@ export function finalizeZap(jobId, { alerts, error }, hostOverride = null) {
 }
 
 /**
+ * Import a Nuclei job's results. Each group was one nuclei run with its own
+ * Host header, so each is filed under that hostname (not the IP it hit) as
+ * its own report. Groups with no findings are skipped unless every group came
+ * back empty, in which case one empty report records the clean scan.
  * @param {string} jobId
- * @param {{ output: string, error: string|null }} outcome
- * @param {string|null} [hostOverride] Host header the scan sent, so results file under it not the IP
+ * @param {{ outputs: { hostHeader: string|null, output: string }[], error: string|null }} outcome
  */
-export function finalizeNuclei(jobId, { output, error }, hostOverride = null) {
+export function finalizeNuclei(jobId, { outputs, error }) {
 	return finalize('nuclei', jobId, {
 		error,
-		importFn: () => parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, output, hostOverride)
+		importFn: async () => {
+			if (outputs.length === 1) {
+				const [{ hostHeader, output }] = outputs;
+				return parseAndInsertNuclei(`nuclei-scan-${jobId}.jsonl`, output, hostHeader);
+			}
+			const withFindings = outputs.filter((o) => o.output.trim());
+			const toImport = withFindings.length > 0 ? withFindings : outputs.slice(0, 1);
+			const results = [];
+			for (const { hostHeader, output } of toImport) {
+				const suffix = hostHeader ? `-${hostHeader}` : '';
+				results.push(await parseAndInsertNuclei(`nuclei-scan-${jobId}${suffix}.jsonl`, output, hostHeader));
+			}
+			const first = results.find((r) => r.reportId) ?? results[0];
+			return {
+				...first,
+				insertedCount: results.reduce((sum, r) => sum + (r.insertedCount ?? 0), 0),
+				reportCount: results.length,
+				findings: results.flatMap((r) => r.findings ?? [])
+			};
+		}
 	});
 }

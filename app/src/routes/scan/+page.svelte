@@ -7,6 +7,7 @@
 	import nucleiLogo from '$lib/assets/tools/nuclei-logo.png';
 	import zapLogo from '$lib/assets/tools/zap-logo.svg';
 	import HostResolver from '$lib/HostResolver.svelte';
+	import { parseZapTargets, parseNucleiTargets } from '$lib/scanTargets.js';
 
 	let { data } = $props();
 
@@ -232,7 +233,7 @@
 
 	// ---- ZAP ----------------------------------------------------------------
 	let zapTarget = $state('');
-	let zapPinIp = $state('');
+	const zapParsed = $derived(parseZapTargets(zapTarget));
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
 	let zapPhase = $state('');
 	let zapProgress = $state('');
@@ -242,7 +243,16 @@
 	let zapJobId = $state(null);
 	let zapCancelling = $state(false);
 	let zapPollTimer = null;
-	let zapAdvancedOpen = $state(false);
+
+	/** Append a line to a target field, skipping it if already present. */
+	function appendLine(current, line) {
+		const lines = String(current)
+			.split('\n')
+			.map((s) => s.trim())
+			.filter(Boolean);
+		if (!lines.includes(line)) lines.push(line);
+		return lines.join('\n');
+	}
 
 	function stopZapPoll() {
 		if (zapPollTimer) clearTimeout(zapPollTimer);
@@ -288,8 +298,9 @@
 	}
 
 	async function startZapScan() {
-		const targets = normalizeTargets(zapTarget);
-		if (!targets) return;
+		// Sent raw: each line may be "URL IP", which the server parses itself.
+		const targets = zapTarget.trim();
+		if (!targets || zapParsed.errors.length > 0) return;
 		stopZapPoll();
 		zapStatus = 'starting';
 		zapError = '';
@@ -298,7 +309,7 @@
 			const res = await fetch('/api/zap/scan', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ targets, pinIp: zapPinIp.trim() || undefined })
+				body: JSON.stringify({ targets })
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -342,6 +353,8 @@
 	let nucleiPercent = $state(null);
 	let nucleiPollTimer = null;
 	let nucleiAdvancedOpen = $state(false);
+	const nucleiParsed = $derived(parseNucleiTargets(nucleiTarget, nucleiHostHeader.trim().toLowerCase() || null));
+	const nucleiPairCount = $derived(nucleiParsed.groups.filter((g) => g.hostHeader).length);
 
 	function stopNucleiPoll() {
 		if (nucleiPollTimer) clearTimeout(nucleiPollTimer);
@@ -378,8 +391,9 @@
 	}
 
 	async function startNucleiScan() {
-		const targets = normalizeTargets(nucleiTarget);
-		if (!targets) return;
+		// Sent raw: each line may be "IP name", which the server parses itself.
+		const targets = nucleiTarget.trim();
+		if (!targets || nucleiParsed.errors.length > 0) return;
 		stopNucleiPoll();
 		nucleiStatus = 'starting';
 		nucleiError = '';
@@ -539,6 +553,24 @@
 	{/if}
 {/snippet}
 
+{#snippet parsePreview(errors, pairs, pairLabel)}
+	{#if errors.length > 0}
+		<ul class="parse-errors">
+			{#each errors as e}<li>⚠️ {e}</li>{/each}
+		</ul>
+	{/if}
+	{#if pairs.length > 0}
+		<div class="pairs">
+			<span class="pairs-head">{pairLabel} {pairs.length} คู่</span>
+			<ul>
+				{#each pairs as p (p.name + p.ip)}
+					<li><code>{p.name}</code><span class="arrow">→</span><code>{p.ip}</code></li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet progress(percent, small = false)}
 	{#if typeof percent === 'number'}
 		<div class="bar" class:bar-sm={small} role="progressbar" aria-valuenow={percent} aria-valuemin="0" aria-valuemax="100">
@@ -586,46 +618,35 @@
 						ผลนำเข้าระบบอัตโนมัติเมื่อเสร็จ
 					</p>
 					<label class="field" for="zap-target">
-						URL เป้าหมาย <span class="count">{countTargets(zapTarget) || ''}</span>
+						URL เป้าหมาย
+						<span class="count">
+							{zapParsed.urls.length ? `${zapParsed.urls.length} เว็บ` : ''}
+							{zapParsed.pins.length ? ` · ปัก ${zapParsed.pins.length}` : ''}
+						</span>
 					</label>
 					<textarea
 						id="zap-target"
-						rows="3"
+						rows="4"
 						bind:value={zapTarget}
-						placeholder={'https://example.kku.ac.th\nhttps://10.1.2.3'}
+						placeholder={'https://example.kku.ac.th\nhttps://web1.kku.ac.th 10.101.102.34\nhttps://web2.kku.ac.th 10.101.102.35'}
 						disabled={busy(zapStatus)}
 					></textarea>
 					<div class="row">
-						<span class="hint">บรรทัดละ 1 URL หรือคั่นด้วย comma</span>
+						<span class="hint">
+							บรรทัดละ 1 URL · ใส่ IP ต่อท้ายเพื่อปัก DNS ให้ชื่อนั้นชี้ไปเครื่องที่ต้องการ (ใช้เมื่อชื่อเดียวมีหลายเครื่อง)
+						</span>
 						<span class="spacer"></span>
 						{@render groupPicker(zapTarget, (v) => (zapTarget = v), busy(zapStatus))}
 					</div>
+					{@render parsePreview(
+						zapParsed.errors,
+						zapParsed.pins.map((p) => ({ name: p.host, ip: p.ip })),
+						'ปัก DNS'
+					)}
 					<HostResolver
 						disabled={busy(zapStatus)}
-						onpick={(c) => {
-							zapTarget = `https://${c.host}`;
-							zapPinIp = c.ip;
-							zapAdvancedOpen = true;
-						}}
+						onpick={(c) => (zapTarget = appendLine(zapTarget, `https://${c.host} ${c.ip}`))}
 					/>
-					<details class="adv" bind:open={zapAdvancedOpen}>
-						<summary>ปัก DNS → IP {zapPinIp ? `· ${zapPinIp}` : '(ไม่บังคับ)'}</summary>
-						<div class="adv-grid">
-							<label class="field" for="zap-pin">
-								IP ปลายทาง
-								<input
-									id="zap-pin"
-									type="text"
-									bind:value={zapPinIp}
-									placeholder="เช่น 10.101.102.34"
-									disabled={busy(zapStatus)}
-								/>
-							</label>
-							<p class="hint">
-								สแกน URL ด้วยชื่อจริง แต่บังคับให้ชื่อนั้นชี้ไปที่ IP นี้ ใช้เมื่อชื่อเดียวมีหลายเครื่อง ใช้ได้ทีละ 1 เว็บ
-							</p>
-						</div>
-					</details>
 
 					<div class="actions">
 						{#if zapStatus === 'running'}
@@ -638,7 +659,7 @@
 						<button
 							type="button"
 							class="button primary big"
-							disabled={!zapTarget.trim() || busy(zapStatus)}
+							disabled={!zapParsed.urls.length || zapParsed.errors.length > 0 || busy(zapStatus)}
 							onclick={startZapScan}
 						>
 							{busy(zapStatus) ? '⏳ กำลังสแกน...' : '⚡ เริ่มสแกน ZAP'}
@@ -696,20 +717,33 @@
 						ผลนำเข้าระบบอัตโนมัติเมื่อเสร็จ
 					</p>
 					<label class="field" for="nuclei-target">
-						เป้าหมาย <span class="count">{countTargets(nucleiTarget) || ''}</span>
+						เป้าหมาย
+						<span class="count">
+							{nucleiParsed.targets.length ? `${nucleiParsed.targets.length} เป้าหมาย` : ''}
+							{nucleiPairCount ? ` · ${nucleiPairCount} Host header` : ''}
+						</span>
 					</label>
 					<textarea
 						id="nuclei-target"
-						rows="3"
+						rows="4"
 						bind:value={nucleiTarget}
-						placeholder={'10.1.2.3\nhttps://example.kku.ac.th'}
+						placeholder={'10.1.2.3\n10.101.102.34 web1.kku.ac.th\n10.101.102.35 web2.kku.ac.th'}
 						disabled={busy(nucleiStatus)}
 					></textarea>
 					<div class="row">
-						<span class="hint">บรรทัดละ 1 รายการ หรือคั่นด้วย comma</span>
+						<span class="hint">
+							บรรทัดละ 1 เป้าหมาย · ใส่ชื่อเว็บต่อท้าย IP เพื่อยิงที่ IP นั้นด้วย Host header ของชื่อนั้น
+						</span>
 						<span class="spacer"></span>
 						{@render groupPicker(nucleiTarget, (v) => (nucleiTarget = v), busy(nucleiStatus))}
 					</div>
+					{@render parsePreview(
+						nucleiParsed.errors,
+						nucleiParsed.groups
+							.filter((g) => g.hostHeader)
+							.flatMap((g) => g.targets.map((t) => ({ name: g.hostHeader, ip: t }))),
+						'Host header'
+					)}
 					<label class="field" for="nuclei-cve">
 						CVE ID (ไม่บังคับ)
 						<input
@@ -722,14 +756,12 @@
 					</label>
 					<HostResolver
 						disabled={busy(nucleiStatus)}
-						onpick={(c) => {
-							nucleiTarget = c.ip;
-							nucleiHostHeader = c.host;
-							nucleiAdvancedOpen = true;
-						}}
+						onpick={(c) => (nucleiTarget = appendLine(nucleiTarget, `${c.ip} ${c.host}`))}
 					/>
 					<details class="adv" bind:open={nucleiAdvancedOpen}>
-						<summary>Host header {nucleiHostHeader ? `· ${nucleiHostHeader}` : '(ไม่บังคับ)'}</summary>
+						<summary>
+							Host header สำหรับบรรทัดที่ไม่ได้ระบุชื่อ {nucleiHostHeader ? `· ${nucleiHostHeader}` : '(ไม่บังคับ)'}
+						</summary>
 						<div class="adv-grid">
 							<label class="field" for="nuclei-host">
 								ชื่อเว็บ
@@ -741,7 +773,9 @@
 									disabled={busy(nucleiStatus)}
 								/>
 							</label>
-							<p class="hint">ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header ใช้เมื่อ IP เดียวมีหลายเว็บ</p>
+							<p class="hint">
+								ใช้กับทุกบรรทัดที่มีแค่ IP เช่นสแกนหลาย IP ด้วยชื่อเว็บเดียวกัน บรรทัดที่มีชื่อของตัวเองจะใช้ชื่อนั้นแทน
+							</p>
 						</div>
 					</details>
 
@@ -756,7 +790,7 @@
 						<button
 							type="button"
 							class="button primary big"
-							disabled={!nucleiTarget.trim() || busy(nucleiStatus)}
+							disabled={!nucleiParsed.targets.length || nucleiParsed.errors.length > 0 || busy(nucleiStatus)}
 							onclick={startNucleiScan}
 						>
 							{busy(nucleiStatus) ? '⏳ กำลังสแกน...' : '🎯 เริ่มสแกน Nuclei'}
@@ -1198,6 +1232,55 @@
 		color: var(--muted);
 	}
 
+	.parse-errors {
+		list-style: none;
+		margin: 0;
+		padding: 0.5rem 0.75rem;
+		border-radius: 6px;
+		background: rgba(241, 154, 154, 0.1);
+		color: #f19a9a;
+		font-size: 0.8rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+	.pairs {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		background: var(--bg);
+	}
+	.pairs-head {
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: var(--muted);
+	}
+	.pairs ul {
+		list-style: none;
+		margin: 0.3rem 0 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		gap: 0.2rem 1rem;
+		max-height: 9rem;
+		overflow-y: auto;
+	}
+	.pairs li {
+		display: flex;
+		gap: 0.4rem;
+		align-items: baseline;
+		font-size: 0.78rem;
+		min-width: 0;
+	}
+	.pairs code {
+		font-family: var(--mono, monospace);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.pairs .arrow {
+		color: var(--muted);
+	}
 	details.adv {
 		border: 1px dashed var(--border);
 		border-radius: 8px;

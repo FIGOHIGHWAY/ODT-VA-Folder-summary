@@ -3,7 +3,8 @@ import { startScan } from '$lib/server/zap.js';
 import { insertScanJob } from '$lib/server/db.js';
 import { finalizeZap } from '$lib/server/scanFinalize.js';
 import { canUpload } from '$lib/server/permissions.js';
-import { isIpv4 } from '$lib/hostRegistry.js';
+import { isIpv4, extractHost } from '$lib/hostRegistry.js';
+import { parseZapTargets } from '$lib/scanTargets.js';
 
 export async function POST({ request, locals }) {
 	if (!canUpload(locals.user?.role ?? 'user')) {
@@ -11,27 +12,34 @@ export async function POST({ request, locals }) {
 	}
 
 	const { targets, pinIp } = await request.json();
-	const trimmed = String(targets ?? '').trim();
-	if (!trimmed) {
+	if (!String(targets ?? '').trim()) {
 		return json({ error: 'ต้องระบุ URL เป้าหมาย' }, { status: 400 });
 	}
-	const urlList = trimmed
-		.split(/[\n,]+/)
-		.map((t) => t.trim())
-		.filter(Boolean);
-	const badUrl = urlList.find((u) => !/^https?:\/\//i.test(u));
-	if (badUrl) {
-		return json(
-			{ error: `ZAP ต้องการ URL เต็มรูปแบบสำหรับทุกรายการ เช่น https://example.kku.ac.th (ผิดที่: "${badUrl}")` },
-			{ status: 400 }
-		);
+
+	// Each line is a URL, or "URL IP" to pin that URL's host to a server.
+	const { urls, pins, errors } = parseZapTargets(targets);
+	if (errors.length > 0) {
+		return json({ error: errors.join('\n') }, { status: 400 });
 	}
-	// Optional DNS pin: scan the URL by its hostname but force that hostname to
-	// resolve to this IP, so a specific server behind a shared name is scanned.
-	const trimmedPin = String(pinIp ?? '').trim() || null;
-	if (trimmedPin && !isIpv4(trimmedPin)) {
-		return json({ error: `IP สำหรับปัก DNS ไม่ถูกต้อง: "${trimmedPin}"` }, { status: 400 });
+	if (urls.length === 0) {
+		return json({ error: 'ต้องระบุ URL เป้าหมาย' }, { status: 400 });
 	}
+
+	// Legacy single-pin field: pins the one host in the list to this IP.
+	const legacyPin = String(pinIp ?? '').trim() || null;
+	if (legacyPin) {
+		if (!isIpv4(legacyPin)) {
+			return json({ error: `IP สำหรับปัก DNS ไม่ถูกต้อง: "${legacyPin}"` }, { status: 400 });
+		}
+		const hosts = [...new Set(urls.map(extractHost).filter(Boolean))];
+		if (hosts.length !== 1) {
+			return json({ error: 'ช่องปัก DNS แบบเดิมใช้ได้กับ 1 เว็บ — ใส่ "URL IP" ในแต่ละบรรทัดแทน' }, { status: 400 });
+		}
+		if (!pins.some((p) => p.host === hosts[0])) pins.push({ host: hosts[0], ip: legacyPin });
+	}
+
+	const target = urls.join(', ');
+	const extra = pins.length > 0 ? pins.map((p) => `${p.host}→${p.ip}`).join(', ') : null;
 
 	try {
 		// The scan_jobs row is inserted after startScan returns its id, so the
@@ -39,15 +47,15 @@ export async function POST({ request, locals }) {
 		// update a row that doesn't exist yet and leave it stuck at "running".
 		let markRowReady;
 		const rowReady = new Promise((resolve) => (markRowReady = resolve));
-		const jobId = startScan(trimmed, trimmedPin, async (id, outcome) => {
+		const jobId = startScan(urls, pins, async (id, outcome) => {
 			await rowReady;
 			return finalizeZap(id, outcome);
 		});
 		await insertScanJob({
 			tool: 'zap',
-			target: trimmed,
+			target,
 			externalId: jobId,
-			extra: trimmedPin ? `→ ${trimmedPin}` : null,
+			extra,
 			createdBy: locals.user?.email ?? locals.user?.name ?? null
 		}).finally(markRowReady);
 		return json({ jobId });

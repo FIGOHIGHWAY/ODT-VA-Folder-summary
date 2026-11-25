@@ -5,6 +5,7 @@ import { finalizeNuclei } from '$lib/server/scanFinalize.js';
 import { expandTargetList, summarizeResolvedTargets } from '$lib/server/cidr.js';
 import { canUpload } from '$lib/server/permissions.js';
 import { isValidHostname } from '$lib/hostRegistry.js';
+import { parseNucleiTargets } from '$lib/scanTargets.js';
 
 export async function POST({ request, locals }) {
 	if (!canUpload(locals.user?.role ?? 'user')) {
@@ -12,20 +13,36 @@ export async function POST({ request, locals }) {
 	}
 
 	const { targets, cveId, hostHeader } = await request.json();
-	const trimmed = String(targets ?? '').trim();
-	if (!trimmed) {
+	if (!String(targets ?? '').trim()) {
 		return json({ error: 'ต้องระบุ target (IP หรือโดเมน)' }, { status: 400 });
 	}
 	const trimmedCve = String(cveId ?? '').trim() || null;
-	const trimmedHost = String(hostHeader ?? '').trim().toLowerCase() || null;
-	if (trimmedHost && !isValidHostname(trimmedHost)) {
-		return json({ error: `Host header ไม่ถูกต้อง: "${trimmedHost}"` }, { status: 400 });
+	// Default Host header for lines that don't carry their own "IP name" pair.
+	const defaultHost = String(hostHeader ?? '').trim().toLowerCase() || null;
+	if (defaultHost && !isValidHostname(defaultHost)) {
+		return json({ error: `Host header ไม่ถูกต้อง: "${defaultHost}"` }, { status: 400 });
 	}
-	const extra = [trimmedCve, trimmedHost ? `Host: ${trimmedHost}` : null].filter(Boolean).join(' · ') || null;
+
+	const { groups, targets: flatTargets, errors } = parseNucleiTargets(targets, defaultHost);
+	if (errors.length > 0) {
+		return json({ error: errors.join('\n') }, { status: 400 });
+	}
+	if (flatTargets.length === 0) {
+		return json({ error: 'ต้องระบุ target (IP หรือโดเมน)' }, { status: 400 });
+	}
+
+	const headers = groups.map((g) => g.hostHeader).filter(Boolean);
+	const hostLabel =
+		headers.length === 0 ? null : headers.length === 1 ? `Host: ${headers[0]}` : `Host: ${headers.length} ชื่อ`;
+	const extra = [trimmedCve, hostLabel].filter(Boolean).join(' · ') || null;
+	const target =
+		headers.length > 1
+			? groups.map((g) => (g.hostHeader ? `${g.targets.join(', ')} (${g.hostHeader})` : g.targets.join(', '))).join(', ')
+			: flatTargets.join(', ');
 
 	let resolvedTargets = null;
 	try {
-		resolvedTargets = summarizeResolvedTargets(expandTargetList(trimmed));
+		resolvedTargets = summarizeResolvedTargets(expandTargetList(flatTargets.join(', ')));
 	} catch (err) {
 		return json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
 	}
@@ -36,13 +53,13 @@ export async function POST({ request, locals }) {
 		// update a row that doesn't exist yet and leave it stuck at "running".
 		let markRowReady;
 		const rowReady = new Promise((resolve) => (markRowReady = resolve));
-		const jobId = startScan(trimmed, trimmedCve, trimmedHost, async (id, outcome) => {
+		const jobId = startScan(groups, trimmedCve, async (id, outcome) => {
 			await rowReady;
-			return finalizeNuclei(id, outcome, trimmedHost);
+			return finalizeNuclei(id, outcome);
 		});
 		await insertScanJob({
 			tool: 'nuclei',
-			target: trimmed,
+			target,
 			externalId: jobId,
 			extra,
 			resolvedTargets,

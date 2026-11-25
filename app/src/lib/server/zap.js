@@ -31,7 +31,7 @@ function pinConfig() {
 	return { host, user, keyPath };
 }
 
-/** Run the ZAP-VM pin helper (`set <ip> <host>` or `clear`). */
+/** Run the ZAP-VM pin helper (`set|add <ip> <host>` or `clear`). */
 function runPin(command) {
 	const { host, user, keyPath } = pinConfig();
 	return new Promise((resolve, reject) => {
@@ -251,46 +251,29 @@ function hostnameOf(url) {
 	}
 }
 
-/** Splits a free-text target field (comma or newline separated) into a clean list. */
-function splitTargets(targets) {
-	return String(targets)
-		.split(/[\n,]+/)
-		.map((t) => t.trim())
-		.filter(Boolean);
-}
-
 /**
  * Launch a Spider crawl followed by an Active Scan against one or more
- * target URLs (run sequentially), then fetch the resulting alerts. Runs in
- * the background; poll with getScanStatus(jobId).
+ * target URLs, then fetch the resulting alerts. Runs in the background; poll
+ * with getScanStatus(jobId).
  * Targets are spidered + active-scanned concurrently (a worker pool, default 5,
- * `ZAP_SCAN_CONCURRENCY` to change) inside one shared ZAP session; a single
- * target behind a DNS pin still runs alone since the pin maps one host→IP.
- * @param {string} targetUrls one URL, or several separated by commas/newlines
- * @param {string|null} pinIp when given, the single target hostname is forced
- *   to resolve to this IP for the scan (hosts-file style), so a specific server
+ * `ZAP_SCAN_CONCURRENCY` to change) inside one shared ZAP session.
+ * @param {string[]} urlList target URLs (already validated by the caller)
+ * @param {{ host: string, ip: string }[]} pins DNS pins: each host is forced to
+ *   resolve to its IP for the scan (hosts-file style), so a specific server
  *   behind a shared name is scanned while findings keep the clean hostname.
+ *   Every pinned host must be the host of at least one target URL.
  * @param {(jobId: string, outcome: { alerts: object[]|null, error: string|null }) => Promise<{ ok: boolean, result?: object, error?: string }>} onFinish
  *   persists the outcome; the job stays "running" (phase "importing") until it resolves
  * @returns {string} jobId
  */
-export function startScan(targetUrls, pinIp, onFinish) {
-	const urlList = splitTargets(targetUrls);
+export function startScan(urlList, pins, onFinish) {
 	if (urlList.length === 0) {
 		throw new Error('ต้องระบุ URL อย่างน้อย 1 รายการ');
 	}
-
-	// When a pin IP is given, the target is scanned by its real hostname but
-	// that hostname is forced to resolve to the chosen IP inside ZAP — so the
-	// right server is scanned while findings carry the clean hostname. Pinning
-	// rewrites one hostname→IP mapping, so it supports a single host at a time.
-	let pinHost = null;
-	if (pinIp) {
-		const hosts = [...new Set(urlList.map(hostnameOf).filter(Boolean))];
-		if (hosts.length !== 1) {
-			throw new Error('การปัก DNS รองรับทีละ 1 โฮสต์ (ระบุ URL ปลายทางเพียงโฮสต์เดียว)');
-		}
-		pinHost = hosts[0];
+	const targetHosts = new Set(urlList.map(hostnameOf).filter(Boolean));
+	const strayPin = pins.find((p) => !targetHosts.has(p.host));
+	if (strayPin) {
+		throw new Error(`ปัก DNS ให้ ${strayPin.host} แต่ไม่มี URL ของชื่อนี้ในรายการเป้าหมาย`);
 	}
 
 	// Each scan starts a fresh ZAP session (see below), which would wipe a
@@ -322,11 +305,15 @@ export function startScan(targetUrls, pinIp, onFinish) {
 	(async () => {
 		const job = jobs.get(jobId);
 		try {
-			// Force the target hostname to resolve to the chosen IP for the duration
-			// of this scan (cleared in the finally below), so ZAP hits the intended
-			// server while sending the real hostname (correct SNI, Host and URLs).
-			if (pinHost) {
-				await runPin(`set ${pinIp} ${pinHost}`);
+			// Force each pinned hostname to resolve to its chosen IP for the
+			// duration of this scan (cleared in the finally below), so ZAP hits the
+			// intended server while sending the real hostname (correct SNI, Host
+			// and URLs). Clear first so a pin left by a crashed run can't linger.
+			if (pins.length > 0) {
+				await runPin('clear');
+				for (const { host, ip } of pins) {
+					await runPin(`add ${ip} ${host}`);
+				}
 			}
 
 			// ZAP keeps every request/response from every past scan in memory
@@ -378,11 +365,15 @@ export function startScan(targetUrls, pinIp, onFinish) {
 		} catch (err) {
 			job.error = err instanceof Error ? err.message : String(err);
 		} finally {
-			// Always remove the DNS pin so it never leaks into a later scan and
-			// make the hostname resolve normally again.
-			if (pinHost) {
+			// Always remove the DNS pins so they never leak into a later scan and
+			// make the hostnames resolve normally again.
+			if (pins.length > 0) {
 				await runPin('clear').catch(() => {});
 			}
+			// Drop this scan's request/response history now that the alerts are in
+			// memory. ZAP stores it on disk in the session; one large scan grew it
+			// to 45 GB, filled the VM's disk and took ZAP down (2026-11-23).
+			await zapGet('/JSON/core/action/newSession/', { name: '', overwrite: 'true' }).catch(() => {});
 		}
 
 		job.phase = 'importing';
