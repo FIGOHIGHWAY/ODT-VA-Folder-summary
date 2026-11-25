@@ -2,7 +2,11 @@ import { error } from '@sveltejs/kit';
 import { canUpload } from '$lib/server/permissions.js';
 import { listRecentScanJobs, listIpGroups, updateScanJobByExternalId } from '$lib/server/db.js';
 import { getScanStatus as getOpenvasStatus } from '$lib/server/openvas.js';
-import { peekPercent as peekZapPercent, isTracked as isZapTracked } from '$lib/server/zap.js';
+import {
+	peekPercent as peekZapPercent,
+	peekTargets as peekZapTargets,
+	isTracked as isZapTracked
+} from '$lib/server/zap.js';
 import { peekPercent as peekNucleiPercent, isTracked as isNucleiTracked } from '$lib/server/nuclei.js';
 
 const ORPHANED_MESSAGE = 'ขาดการติดตาม: server รีสตาร์ทระหว่างสแกน — กรุณาสั่งสแกนใหม่';
@@ -40,6 +44,7 @@ async function attachLivePercent(jobs) {
 						job.livePercent = percent;
 					} else if (job.tool === 'zap') {
 						job.livePercent = peekZapPercent(job.external_id);
+					job.liveTargets = peekZapTargets(job.external_id);
 					} else if (job.tool === 'nuclei') {
 						job.livePercent = peekNucleiPercent(job.external_id);
 					}

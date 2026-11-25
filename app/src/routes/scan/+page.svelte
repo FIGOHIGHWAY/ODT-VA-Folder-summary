@@ -1,4 +1,5 @@
 <script>
+	import { onDestroy } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { lang, t } from '$lib/i18n.js';
 	import nessusLogo from '$lib/assets/tools/nessus-logo.png';
@@ -11,14 +12,72 @@
 
 	const TOOL_LABEL = { nessus: 'Nessus', openvas: 'OpenVAS', nuclei: 'Nuclei', zap: 'ZAP' };
 	const STATUS_LABEL = { running: '⏳ กำลังสแกน', done: '✅ สำเร็จ', error: '❌ ล้มเหลว' };
+	const TARGET_PHASE_LABEL = {
+		spider: 'crawl',
+		'active-scan': 'active',
+		'fetching-alerts': 'ดึงผล'
+	};
 
-	let ipGroups = $state(data.ipGroups);
+	// Disabled: the Nessus VM's current Professional license has "scan_api"
+	// turned off, so POST /scans is rejected with 412 "API is not available"
+	// even though the API key itself authenticates fine. Re-enable once
+	// Tenable confirms scan-via-API is licensed on that activation.
+	const NESSUS_SCAN_ENABLED = false;
+
+	/** @type {string} one of zap | openvas | nuclei | nessus */
+	let activeTab = $state('zap');
+
+	/** Targets may be typed one per line; every tool's API expects a comma list. */
+	function normalizeTargets(raw) {
+		return String(raw)
+			.split(/[\n,]+/)
+			.map((s) => s.trim())
+			.filter(Boolean)
+			.join(', ');
+	}
+
+	function countTargets(raw) {
+		return String(raw)
+			.split(/[\n,]+/)
+			.map((s) => s.trim())
+			.filter(Boolean).length;
+	}
+
+	function fmtTime(d) {
+		return new Date(d).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
+	}
+
+	// ---- Live status sidebar ----------------------------------------------
+	const runningJobs = $derived(data.jobs.filter((j) => j.status === 'running'));
+	const recentJobs = $derived(data.jobs.filter((j) => j.status !== 'running').slice(0, 6));
+	let showHistory = $state(false);
+
+	// Refresh the sidebar every 5s while anything is running, so scans started
+	// earlier (or by someone else) show live progress without a manual reload.
+	let refreshTimer = null;
+	$effect(() => {
+		const anyRunning = runningJobs.length > 0;
+		if (anyRunning && !refreshTimer) {
+			refreshTimer = setInterval(() => invalidateAll(), 5000);
+		} else if (!anyRunning && refreshTimer) {
+			clearInterval(refreshTimer);
+			refreshTimer = null;
+		}
+	});
+	onDestroy(() => {
+		if (refreshTimer) clearInterval(refreshTimer);
+		stopOpenvasPoll();
+		stopZapPoll();
+		stopNucleiPoll();
+		stopNessusPoll();
+	});
 
 	let cancellingJobs = $state(new Set());
 
-	/** Cancel a running job from the scan-history table (a scan started in an
+	/** Cancel a running job from the sidebar/history (a scan started in an
 	 * earlier page session, so there's no in-memory client state for it). */
 	async function cancelHistoryJob(job) {
+		if (!confirm(`ยกเลิกการสแกน ${TOOL_LABEL[job.tool] ?? job.tool} ของ ${job.target}?`)) return;
 		cancellingJobs = new Set(cancellingJobs).add(job.id);
 		try {
 			await fetch(`/api/${job.tool}/scan/${job.external_id}`, { method: 'DELETE' });
@@ -29,6 +88,9 @@
 			cancellingJobs = next;
 		}
 	}
+
+	// ---- IP groups ----------------------------------------------------------
+	let ipGroups = $state(data.ipGroups);
 	let newGroupName = $state('');
 	let newGroupTargets = $state('');
 	let groupError = $state('');
@@ -36,7 +98,7 @@
 
 	async function createGroup() {
 		const name = newGroupName.trim();
-		const targets = newGroupTargets.trim();
+		const targets = normalizeTargets(newGroupTargets);
 		if (!name || !targets) return;
 		groupBusy = true;
 		groupError = '';
@@ -66,11 +128,22 @@
 		ipGroups = ipGroups.filter((g) => g.id !== id);
 	}
 
-	function applyGroup(groupId, setter) {
+	/** Append a saved group's targets to a field (one per line, no duplicates). */
+	function insertGroup(groupId, current) {
 		const group = ipGroups.find((g) => g.id === Number(groupId));
-		if (group) setter(group.targets);
+		if (!group) return current;
+		const existing = String(current)
+			.split(/[\n,]+/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+		const added = String(group.targets)
+			.split(/[\n,]+/)
+			.map((s) => s.trim())
+			.filter((s) => s && !existing.includes(s));
+		return [...existing, ...added].join('\n');
 	}
 
+	// ---- OpenVAS ------------------------------------------------------------
 	let openvasTarget = $state('');
 	let openvasStatus = $state('idle'); // idle | starting | running | done | error
 	let openvasPercent = $state(null);
@@ -115,7 +188,7 @@
 	}
 
 	async function startOpenvasScan() {
-		const targets = openvasTarget.trim();
+		const targets = normalizeTargets(openvasTarget);
 		if (!targets) return;
 		stopOpenvasPoll();
 		openvasStatus = 'starting';
@@ -135,6 +208,7 @@
 			}
 			openvasStatus = 'running';
 			openvasJobId = body.taskId;
+			await invalidateAll();
 			pollOpenvasScan(body.taskId);
 		} catch (err) {
 			openvasStatus = 'error';
@@ -150,11 +224,13 @@
 			stopOpenvasPoll();
 			openvasStatus = 'error';
 			openvasError = 'ยกเลิกโดยผู้ใช้';
+			await invalidateAll();
 		} finally {
 			openvasCancelling = false;
 		}
 	}
 
+	// ---- ZAP ----------------------------------------------------------------
 	let zapTarget = $state('');
 	let zapPinIp = $state('');
 	let zapStatus = $state('idle'); // idle | starting | running | done | error
@@ -166,6 +242,7 @@
 	let zapJobId = $state(null);
 	let zapCancelling = $state(false);
 	let zapPollTimer = null;
+	let zapAdvancedOpen = $state(false);
 
 	function stopZapPoll() {
 		if (zapPollTimer) clearTimeout(zapPollTimer);
@@ -211,7 +288,7 @@
 	}
 
 	async function startZapScan() {
-		const targets = zapTarget.trim();
+		const targets = normalizeTargets(zapTarget);
 		if (!targets) return;
 		stopZapPoll();
 		zapStatus = 'starting';
@@ -231,6 +308,7 @@
 			}
 			zapStatus = 'running';
 			zapJobId = body.jobId;
+			await invalidateAll();
 			pollZapScan(body.jobId);
 		} catch (err) {
 			zapStatus = 'error';
@@ -246,11 +324,13 @@
 			stopZapPoll();
 			zapStatus = 'error';
 			zapError = 'ยกเลิกโดยผู้ใช้';
+			await invalidateAll();
 		} finally {
 			zapCancelling = false;
 		}
 	}
 
+	// ---- Nuclei -------------------------------------------------------------
 	let nucleiTarget = $state('');
 	let nucleiCveId = $state('');
 	let nucleiHostHeader = $state('');
@@ -261,6 +341,7 @@
 	let nucleiCancelling = $state(false);
 	let nucleiPercent = $state(null);
 	let nucleiPollTimer = null;
+	let nucleiAdvancedOpen = $state(false);
 
 	function stopNucleiPoll() {
 		if (nucleiPollTimer) clearTimeout(nucleiPollTimer);
@@ -297,7 +378,7 @@
 	}
 
 	async function startNucleiScan() {
-		const targets = nucleiTarget.trim();
+		const targets = normalizeTargets(nucleiTarget);
 		if (!targets) return;
 		stopNucleiPoll();
 		nucleiStatus = 'starting';
@@ -308,10 +389,10 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-				targets,
-				cveId: nucleiCveId.trim() || undefined,
-				hostHeader: nucleiHostHeader.trim() || undefined
-			})
+					targets,
+					cveId: nucleiCveId.trim() || undefined,
+					hostHeader: nucleiHostHeader.trim() || undefined
+				})
 			});
 			const body = await res.json();
 			if (!res.ok) {
@@ -321,6 +402,7 @@
 			}
 			nucleiStatus = 'running';
 			nucleiJobId = body.jobId;
+			await invalidateAll();
 			pollNucleiScan(body.jobId);
 		} catch (err) {
 			nucleiStatus = 'error';
@@ -336,17 +418,13 @@
 			stopNucleiPoll();
 			nucleiStatus = 'error';
 			nucleiError = 'ยกเลิกโดยผู้ใช้';
+			await invalidateAll();
 		} finally {
 			nucleiCancelling = false;
 		}
 	}
 
-	// Disabled: the Nessus VM's current Professional license has "scan_api"
-	// turned off, so POST /scans is rejected with 412 "API is not available"
-	// even though the API key itself authenticates fine. Re-enable once
-	// Tenable confirms scan-via-API is licensed on that activation.
-	const NESSUS_SCAN_ENABLED = false;
-
+	// ---- Nessus (disabled, see NESSUS_SCAN_ENABLED) -------------------------
 	let nessusTarget = $state('');
 	let nessusStatus = $state('idle'); // idle | starting | running | done | error
 	let nessusError = $state('');
@@ -387,7 +465,7 @@
 	}
 
 	async function startNessusScan() {
-		const targets = nessusTarget.trim();
+		const targets = normalizeTargets(nessusTarget);
 		if (!targets) return;
 		stopNessusPoll();
 		nessusStatus = 'starting';
@@ -412,37 +490,484 @@
 			nessusError = err instanceof Error ? err.message : String(err);
 		}
 	}
+
+	const busy = (s) => s === 'starting' || s === 'running';
+	const TABS = $derived([
+		{ id: 'zap', label: 'ZAP', sub: 'เว็บแอป', logo: zapLogo, status: zapStatus },
+		{ id: 'openvas', label: 'OpenVAS', sub: 'เครื่อง/IP', logo: openvasLogo, status: openvasStatus },
+		{ id: 'nuclei', label: 'Nuclei', sub: 'CVE', logo: nucleiLogo, status: nucleiStatus },
+		{ id: 'nessus', label: 'Nessus', sub: 'ปิดอยู่', logo: nessusLogo, status: nessusStatus, disabled: !NESSUS_SCAN_ENABLED }
+	]);
 </script>
 
 <svelte:head>
 	<title>สั่งสแกน — VA Scan</title>
 </svelte:head>
 
+{#snippet groupPicker(current, set, isBusy)}
+	{#if ipGroups.length > 0}
+		<select
+			class="inline-select"
+			aria-label="แทรกกลุ่ม IP"
+			disabled={isBusy}
+			onchange={(e) => {
+				set(insertGroup(e.currentTarget.value, current));
+				e.currentTarget.value = '';
+			}}
+		>
+			<option value="">📁 แทรกกลุ่ม IP…</option>
+			{#each ipGroups as group (group.id)}
+				<option value={group.id}>{group.name}</option>
+			{/each}
+		</select>
+	{/if}
+{/snippet}
+
+{#snippet outcome(status, err, result)}
+	{#if status === 'error'}
+		<div class="err-box">❌ {err}</div>
+	{:else if status === 'done' && result}
+		<div class="status">
+			{#if result.duplicate}
+				<span class="pill">{t($lang, 'home_already_imported')}</span>
+				<a class="button" href="/reports/{result.existingReportId}">{t($lang, 'home_view_original')}</a>
+			{:else}
+				<span class="pill ok">✓ นำเข้าผลสำเร็จ · {result.insertedCount} finding(s)</span>
+				<a class="button" href="/reports/{result.reportId}">{t($lang, 'home_view_detail')}</a>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet progress(percent, small = false)}
+	{#if typeof percent === 'number'}
+		<div class="bar" class:bar-sm={small} role="progressbar" aria-valuenow={percent} aria-valuemin="0" aria-valuemax="100">
+			<i style="width:{percent}%"></i>
+		</div>
+	{/if}
+{/snippet}
+
 <div class="wrap">
 	<a class="back-link" href="/">← กลับหน้าแรก</a>
-	<h1>สั่งสแกน</h1>
-	<p class="hint">สั่งสแกนหาช่องโหว่จากเครื่องมือที่เชื่อมต่อไว้ แล้วดึงผลกลับมา import เข้าระบบให้อัตโนมัติ</p>
+	<div class="page-head">
+		<h1>สั่งสแกน</h1>
+		{#if runningJobs.length > 0}
+			<span class="pill run">⏳ กำลังสแกน {runningJobs.length} งาน</span>
+		{/if}
+	</div>
 
-	<div class="panel">
-		<h2>📁 กลุ่ม IP</h2>
+	<div class="split">
+		<!-- ================= Left: scan form ================= -->
+		<section class="panel">
+			<div class="tabs" role="tablist" aria-label="เลือกเครื่องมือสแกน">
+				{#each TABS as tab (tab.id)}
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === tab.id}
+						disabled={tab.disabled}
+						title={tab.disabled ? 'license ปัจจุบันไม่รองรับการสั่งสแกนผ่าน API — นำเข้าไฟล์ผลได้ที่หน้าแรก' : ''}
+						onclick={() => (activeTab = tab.id)}
+					>
+						<img src={tab.logo} alt="" class="tab-logo" />
+						<span class="tab-text">
+							<b>{tab.label}</b>
+							<small>{tab.sub}</small>
+						</span>
+						{#if busy(tab.status)}<span class="dot" aria-label="กำลังสแกน"></span>{/if}
+					</button>
+				{/each}
+			</div>
+
+			{#if activeTab === 'zap'}
+				<div class="tab-body">
+					<p class="sub">
+						สแกนเว็บแอป: crawl หน้าเว็บ (spider) แล้วหาช่องโหว่ (active scan) สแกนได้สูงสุด 5 เว็บพร้อมกัน
+						ผลนำเข้าระบบอัตโนมัติเมื่อเสร็จ
+					</p>
+					<label class="field" for="zap-target">
+						URL เป้าหมาย <span class="count">{countTargets(zapTarget) || ''}</span>
+					</label>
+					<textarea
+						id="zap-target"
+						rows="3"
+						bind:value={zapTarget}
+						placeholder={'https://example.kku.ac.th\nhttps://10.1.2.3'}
+						disabled={busy(zapStatus)}
+					></textarea>
+					<div class="row">
+						<span class="hint">บรรทัดละ 1 URL หรือคั่นด้วย comma</span>
+						<span class="spacer"></span>
+						{@render groupPicker(zapTarget, (v) => (zapTarget = v), busy(zapStatus))}
+					</div>
+					<HostResolver
+						disabled={busy(zapStatus)}
+						onpick={(c) => {
+							zapTarget = `https://${c.host}`;
+							zapPinIp = c.ip;
+							zapAdvancedOpen = true;
+						}}
+					/>
+					<details class="adv" bind:open={zapAdvancedOpen}>
+						<summary>ปัก DNS → IP {zapPinIp ? `· ${zapPinIp}` : '(ไม่บังคับ)'}</summary>
+						<div class="adv-grid">
+							<label class="field" for="zap-pin">
+								IP ปลายทาง
+								<input
+									id="zap-pin"
+									type="text"
+									bind:value={zapPinIp}
+									placeholder="เช่น 10.101.102.34"
+									disabled={busy(zapStatus)}
+								/>
+							</label>
+							<p class="hint">
+								สแกน URL ด้วยชื่อจริง แต่บังคับให้ชื่อนั้นชี้ไปที่ IP นี้ ใช้เมื่อชื่อเดียวมีหลายเครื่อง ใช้ได้ทีละ 1 เว็บ
+							</p>
+						</div>
+					</details>
+
+					<div class="actions">
+						{#if zapStatus === 'running'}
+							<span class="pill run">{ZAP_PHASE_LABEL[zapPhase] ?? 'กำลังสแกน...'}{zapProgress ? ` · ${zapProgress}` : ''}</span>
+							<button type="button" class="button" disabled={zapCancelling} onclick={cancelZapScan}>
+								{zapCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิก'}
+							</button>
+						{/if}
+						<span class="spacer"></span>
+						<button
+							type="button"
+							class="button primary big"
+							disabled={!zapTarget.trim() || busy(zapStatus)}
+							onclick={startZapScan}
+						>
+							{busy(zapStatus) ? '⏳ กำลังสแกน...' : '⚡ เริ่มสแกน ZAP'}
+						</button>
+					</div>
+					{#if zapStatus === 'running'}{@render progress(zapPercent)}{/if}
+					{@render outcome(zapStatus, zapError, zapResult)}
+				</div>
+			{:else if activeTab === 'openvas'}
+				<div class="tab-body">
+					<p class="sub">
+						สแกนเครื่องเซิร์ฟเวอร์: พอร์ต บริการ และซอฟต์แวร์ที่มีช่องโหว่ ใส่ได้ทั้ง IP, โดเมน และ CIDR
+						ผลนำเข้าระบบอัตโนมัติเมื่อเสร็จ
+					</p>
+					<label class="field" for="openvas-target">
+						IP หรือโดเมน <span class="count">{countTargets(openvasTarget) || ''}</span>
+					</label>
+					<textarea
+						id="openvas-target"
+						rows="3"
+						bind:value={openvasTarget}
+						placeholder={'10.1.2.3\nexample.kku.ac.th'}
+						disabled={busy(openvasStatus)}
+					></textarea>
+					<div class="row">
+						<span class="hint">บรรทัดละ 1 รายการ หรือคั่นด้วย comma</span>
+						<span class="spacer"></span>
+						{@render groupPicker(openvasTarget, (v) => (openvasTarget = v), busy(openvasStatus))}
+					</div>
+
+					<div class="actions">
+						{#if openvasStatus === 'running'}
+							<span class="pill run">กำลังสแกน...</span>
+							<button type="button" class="button" disabled={openvasCancelling} onclick={cancelOpenvasScan}>
+								{openvasCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิก'}
+							</button>
+						{/if}
+						<span class="spacer"></span>
+						<button
+							type="button"
+							class="button primary big"
+							disabled={!openvasTarget.trim() || busy(openvasStatus)}
+							onclick={startOpenvasScan}
+						>
+							{busy(openvasStatus) ? '⏳ กำลังสแกน...' : '🛡️ เริ่มสแกน OpenVAS'}
+						</button>
+					</div>
+					{#if openvasStatus === 'running'}{@render progress(openvasPercent)}{/if}
+					{@render outcome(openvasStatus, openvasError, openvasResult)}
+				</div>
+			{:else if activeTab === 'nuclei'}
+				<div class="tab-body">
+					<p class="sub">
+						ตรวจช่องโหว่ที่รู้จักด้วย template ใส่ CVE ID เพื่อตรวจตัวเดียว หรือเว้นว่างเพื่อตรวจทั้งชุด
+						ผลนำเข้าระบบอัตโนมัติเมื่อเสร็จ
+					</p>
+					<label class="field" for="nuclei-target">
+						เป้าหมาย <span class="count">{countTargets(nucleiTarget) || ''}</span>
+					</label>
+					<textarea
+						id="nuclei-target"
+						rows="3"
+						bind:value={nucleiTarget}
+						placeholder={'10.1.2.3\nhttps://example.kku.ac.th'}
+						disabled={busy(nucleiStatus)}
+					></textarea>
+					<div class="row">
+						<span class="hint">บรรทัดละ 1 รายการ หรือคั่นด้วย comma</span>
+						<span class="spacer"></span>
+						{@render groupPicker(nucleiTarget, (v) => (nucleiTarget = v), busy(nucleiStatus))}
+					</div>
+					<label class="field" for="nuclei-cve">
+						CVE ID (ไม่บังคับ)
+						<input
+							id="nuclei-cve"
+							type="text"
+							bind:value={nucleiCveId}
+							placeholder="เช่น CVE-2021-44228"
+							disabled={busy(nucleiStatus)}
+						/>
+					</label>
+					<HostResolver
+						disabled={busy(nucleiStatus)}
+						onpick={(c) => {
+							nucleiTarget = c.ip;
+							nucleiHostHeader = c.host;
+							nucleiAdvancedOpen = true;
+						}}
+					/>
+					<details class="adv" bind:open={nucleiAdvancedOpen}>
+						<summary>Host header {nucleiHostHeader ? `· ${nucleiHostHeader}` : '(ไม่บังคับ)'}</summary>
+						<div class="adv-grid">
+							<label class="field" for="nuclei-host">
+								ชื่อเว็บ
+								<input
+									id="nuclei-host"
+									type="text"
+									bind:value={nucleiHostHeader}
+									placeholder="เช่น web.kku.ac.th"
+									disabled={busy(nucleiStatus)}
+								/>
+							</label>
+							<p class="hint">ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header ใช้เมื่อ IP เดียวมีหลายเว็บ</p>
+						</div>
+					</details>
+
+					<div class="actions">
+						{#if nucleiStatus === 'running'}
+							<span class="pill run">กำลังสแกน...</span>
+							<button type="button" class="button" disabled={nucleiCancelling} onclick={cancelNucleiScan}>
+								{nucleiCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิก'}
+							</button>
+						{/if}
+						<span class="spacer"></span>
+						<button
+							type="button"
+							class="button primary big"
+							disabled={!nucleiTarget.trim() || busy(nucleiStatus)}
+							onclick={startNucleiScan}
+						>
+							{busy(nucleiStatus) ? '⏳ กำลังสแกน...' : '🎯 เริ่มสแกน Nuclei'}
+						</button>
+					</div>
+					{#if nucleiStatus === 'running'}{@render progress(nucleiPercent)}{/if}
+					{@render outcome(nucleiStatus, nucleiError, nucleiResult)}
+				</div>
+			{:else if activeTab === 'nessus' && NESSUS_SCAN_ENABLED}
+				<div class="tab-body">
+					<p class="sub">สั่ง Nessus สแกน แล้วดึงผลกลับมานำเข้าอัตโนมัติเมื่อเสร็จ</p>
+					<label class="field" for="nessus-target">IP หรือโดเมน</label>
+					<textarea id="nessus-target" rows="3" bind:value={nessusTarget} disabled={busy(nessusStatus)}></textarea>
+					<div class="row">
+						<span class="spacer"></span>
+						{@render groupPicker(nessusTarget, (v) => (nessusTarget = v), busy(nessusStatus))}
+					</div>
+					<div class="actions">
+						<span class="spacer"></span>
+						<button
+							type="button"
+							class="button primary big"
+							disabled={!nessusTarget.trim() || busy(nessusStatus)}
+							onclick={startNessusScan}
+						>
+							{busy(nessusStatus) ? '⏳ กำลังสแกน...' : '🛰️ เริ่มสแกน Nessus'}
+						</button>
+					</div>
+					{@render outcome(nessusStatus, nessusError, nessusResult)}
+				</div>
+			{/if}
+		</section>
+
+		<!-- ================= Right: live status ================= -->
+		<aside class="panel live" aria-label="สถานะการสแกน">
+			<div class="panel-head">
+				<h2>กำลังทำงาน</h2>
+				<span class="hint">{runningJobs.length > 0 ? 'อัปเดตทุก 5 วิ' : ''}</span>
+			</div>
+			{#if runningJobs.length === 0}
+				<p class="empty">ไม่มีงานที่กำลังสแกน</p>
+			{:else}
+				<ul class="jobs">
+					{#each runningJobs as job (job.id)}
+						<li class="job">
+							<div class="job-top">
+								<b>{TOOL_LABEL[job.tool] ?? job.tool}</b>
+								<span class="pill run">
+									{#if job.liveTargets && job.liveTargets.length > 1}
+										{job.liveTargets.filter((x) => x.done).length}/{job.liveTargets.length} เว็บ ·
+									{/if}
+									{typeof job.livePercent === 'number' ? `${job.livePercent}%` : 'กำลังสแกน'}
+								</span>
+							</div>
+							{@render progress(job.livePercent, true)}
+							{#if job.liveTargets && job.liveTargets.length > 1}
+								<ul class="sub-targets">
+									{#each job.liveTargets as tr (tr.url)}
+										<li title={tr.error ?? tr.url}>
+											<code>{tr.url.replace(/^https?:\/\//, '')}</code>
+											{#if tr.error}
+												<span class="pill err">ล้มเหลว</span>
+											{:else if tr.done}
+												<span class="pill ok">เสร็จ</span>
+											{:else}
+												<span class="pill run">{TARGET_PHASE_LABEL[tr.phase] ?? tr.phase}</span>
+											{/if}
+											<span class="num">{tr.percent}%</span>
+										</li>
+									{/each}
+								</ul>
+							{:else}
+								<div class="job-target">{job.target}</div>
+							{/if}
+							<div class="job-foot">
+								<span class="hint">{job.created_by ?? '—'} · {fmtTime(job.created_at)}</span>
+								{#if job.tool !== 'nessus'}
+									<button
+										type="button"
+										class="button ghost"
+										disabled={cancellingJobs.has(job.id)}
+										onclick={() => cancelHistoryJob(job)}
+									>
+										{cancellingJobs.has(job.id) ? '⏳' : '⛔ ยกเลิก'}
+									</button>
+								{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			<div class="panel-head recent-head">
+				<h2>เสร็จล่าสุด</h2>
+				<button type="button" class="button ghost" onclick={() => invalidateAll()} title="รีเฟรช">🔄</button>
+			</div>
+			{#if recentJobs.length === 0}
+				<p class="empty">ยังไม่มีประวัติการสั่งสแกน</p>
+			{:else}
+				<ul class="jobs">
+					{#each recentJobs as job (job.id)}
+						<li class="job">
+							<div class="job-top">
+								<span class="job-title">
+									<b>{TOOL_LABEL[job.tool] ?? job.tool}</b>
+									<span class="job-target inline">{job.target}</span>
+								</span>
+								<span class="pill" class:ok={job.status === 'done'} class:err={job.status === 'error'}>
+									{job.status === 'done' ? 'สำเร็จ' : job.status === 'error' ? 'ล้มเหลว' : job.status}
+								</span>
+							</div>
+							{#if job.status === 'error' && job.error_message}
+								<div class="job-error">{job.error_message}</div>
+							{/if}
+							<div class="job-foot">
+								<span class="hint">{fmtTime(job.created_at)}</span>
+								{#if job.report_id}
+									<a class="button ghost" href="/reports/{job.report_id}">ดูผล →</a>
+								{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<button type="button" class="button full" onclick={() => (showHistory = !showHistory)}>
+				{showHistory ? 'ซ่อนประวัติทั้งหมด' : `ประวัติทั้งหมด (${data.jobs.length}) ↓`}
+			</button>
+		</aside>
+	</div>
+
+	{#if showHistory}
+		<section class="panel">
+			<div class="panel-head">
+				<h2>📋 ประวัติการสั่งสแกน</h2>
+				<button type="button" class="button" onclick={() => invalidateAll()}>🔄 รีเฟรช</button>
+			</div>
+			<div class="table-wrap">
+				<table class="jobs-table">
+					<thead>
+						<tr>
+							<th>เครื่องมือ</th>
+							<th>Target</th>
+							<th>สถานะ</th>
+							<th>สั่งโดย</th>
+							<th>เมื่อ</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.jobs as job (job.id)}
+							<tr>
+								<td>{TOOL_LABEL[job.tool] ?? job.tool}{job.extra ? ` (${job.extra})` : ''}</td>
+								<td class="mono">
+									{job.target}
+									{#if job.resolved_targets && job.resolved_targets !== job.target}
+										<div class="resolved-targets-note">📋 {job.resolved_targets}</div>
+									{/if}
+								</td>
+								<td>
+									<span class="pill" class:ok={job.status === 'done'} class:err={job.status === 'error'} class:run={job.status === 'running'}>
+										{STATUS_LABEL[job.status] ?? job.status}
+									</span>
+									{#if job.status === 'running'}{@render progress(job.livePercent, true)}{/if}
+									{#if job.status === 'error' && job.error_message}
+										<div class="job-error">{job.error_message}</div>
+									{/if}
+								</td>
+								<td>{job.created_by ?? '—'}</td>
+								<td class="mono">{fmtTime(job.created_at)}</td>
+								<td>
+									{#if job.report_id}
+										<a class="button" href="/reports/{job.report_id}">ดูผล</a>
+									{/if}
+									{#if job.status === 'running' && job.tool !== 'nessus'}
+										<button
+											type="button"
+											class="button"
+											disabled={cancellingJobs.has(job.id)}
+											onclick={() => cancelHistoryJob(job)}
+										>
+											{cancellingJobs.has(job.id) ? '⏳' : '⛔'}
+										</button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	{/if}
+
+	<details class="panel groups">
+		<summary><h2>📁 จัดการกลุ่ม IP ({ipGroups.length})</h2></summary>
 		<p class="sub">
-			บันทึกชุด IP/host ที่ใช้บ่อยไว้เป็นกลุ่ม แล้วเลือกใส่ในช่อง target ของแต่ละเครื่องมือได้เลย
-			โดยไม่ต้องพิมพ์ใหม่ทุกครั้ง — เหมาะกับการสแกนหาช่องโหว่เดียวกันในหลาย IP พร้อมกัน
+			บันทึกชุด IP/host ที่ใช้บ่อยไว้เป็นกลุ่ม แล้วกด "แทรกกลุ่ม IP" ในฟอร์มด้านบนเพื่อใส่ทั้งชุดได้ทันที
 		</p>
-		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-start">
+		<div class="group-form">
 			<input
 				type="text"
 				bind:value={newGroupName}
 				placeholder="ชื่อกลุ่ม เช่น เซิร์ฟเวอร์แผนก IT"
+				aria-label="ชื่อกลุ่ม"
 				disabled={groupBusy}
-				style="flex:0 0 220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
 			/>
 			<textarea
 				bind:value={newGroupTargets}
-				placeholder="IP/host คั่นด้วย comma หรือขึ้นบรรทัดใหม่ เช่น 10.1.2.3, 10.1.2.4"
+				placeholder="IP/host บรรทัดละ 1 หรือคั่นด้วย comma"
+				aria-label="IP/host ในกลุ่ม"
 				disabled={groupBusy}
 				rows="2"
-				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:inherit"
 			></textarea>
 			<button
 				type="button"
@@ -457,433 +982,29 @@
 			<div class="err-box">{groupError}</div>
 		{/if}
 		{#if ipGroups.length > 0}
-			<table class="jobs-table" style="margin-top:.75rem">
-				<thead>
-					<tr>
-						<th>ชื่อกลุ่ม</th>
-						<th>Targets</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each ipGroups as group (group.id)}
-						<tr>
-							<td>{group.name}</td>
-							<td class="mono">{group.targets}</td>
-							<td>
-								<button type="button" class="button" onclick={() => deleteGroup(group.id)}>🗑️ ลบ</button>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		{/if}
-	</div>
-
-	{#if NESSUS_SCAN_ENABLED}
-		<div class="panel">
-			<h2><img src={nessusLogo} alt="Nessus" class="tool-logo" /> สั่งสแกนด้วย Nessus</h2>
-			<p class="sub">
-				พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน เช่น
-				10.1.2.3, 10.1.2.4) ระบบจะสั่ง Nessus เริ่มสแกน แล้วดึงผลกลับมา import
-				เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
-			</p>
-			<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
-				<input
-					type="text"
-					bind:value={nessusTarget}
-					placeholder="เช่น 10.1.2.3 หรือ example.kku.ac.th"
-					disabled={nessusStatus === 'starting' || nessusStatus === 'running'}
-					style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-				/>
-				{#if ipGroups.length > 0}
-					<select
-						onchange={(e) => {
-							applyGroup(e.target.value, (v) => (nessusTarget = v));
-							e.target.value = '';
-						}}
-						style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-					>
-						<option value="">📁 เลือกกลุ่ม IP...</option>
+			<div class="table-wrap">
+				<table class="groups-table">
+					<thead>
+						<tr><th>ชื่อกลุ่ม</th><th>Targets</th><th></th></tr>
+					</thead>
+					<tbody>
 						{#each ipGroups as group (group.id)}
-							<option value={group.id}>{group.name}</option>
+							<tr>
+								<td>{group.name}</td>
+								<td class="mono">{group.targets}</td>
+								<td><button type="button" class="button" onclick={() => deleteGroup(group.id)}>🗑️ ลบ</button></td>
+							</tr>
 						{/each}
-					</select>
-				{/if}
-				<button
-					type="button"
-					class="button"
-					disabled={!nessusTarget.trim() || nessusStatus === 'starting' || nessusStatus === 'running'}
-					onclick={startNessusScan}
-				>
-					{nessusStatus === 'starting' || nessusStatus === 'running' ? '⏳ กำลังสแกน...' : '🛰️ เริ่มสแกน'}
-				</button>
+					</tbody>
+				</table>
 			</div>
-
-			{#if nessusStatus === 'running'}
-				<div class="status"><span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span></div>
-			{:else if nessusStatus === 'error'}
-				<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
-				<div class="err-box">{nessusError}</div>
-			{:else if nessusStatus === 'done' && nessusResult}
-				{#if nessusResult.duplicate}
-					<div class="status">
-						<span class="badge">{t($lang, 'home_already_imported')}</span>
-						<a class="button" href="/reports/{nessusResult.existingReportId}">
-							{t($lang, 'home_view_original')}
-						</a>
-					</div>
-				{:else}
-					<div class="status">
-						<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
-						<span style="color:var(--muted)">{nessusResult.insertedCount} finding(s)</span>
-						<a class="button" href="/reports/{nessusResult.reportId}">{t($lang, 'home_view_detail')}</a>
-					</div>
-				{/if}
-			{/if}
-		</div>
-	{/if}
-
-	<div class="panel">
-		<h2><img src={openvasLogo} alt="OpenVAS" class="tool-logo" /> สั่งสแกนด้วย OpenVAS</h2>
-		<p class="sub">
-			พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน เช่น
-			10.1.2.3, 10.1.2.4) ระบบจะสั่ง OpenVAS เริ่มสแกน แล้วดึงผลกลับมา import
-			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ
-		</p>
-		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
-			<input
-				type="text"
-				bind:value={openvasTarget}
-				placeholder="เช่น 10.1.2.3 หรือ example.kku.ac.th"
-				disabled={openvasStatus === 'starting' || openvasStatus === 'running'}
-				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			{#if ipGroups.length > 0}
-				<select
-					onchange={(e) => {
-						applyGroup(e.target.value, (v) => (openvasTarget = v));
-						e.target.value = '';
-					}}
-					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-				>
-					<option value="">📁 เลือกกลุ่ม IP...</option>
-					{#each ipGroups as group (group.id)}
-						<option value={group.id}>{group.name}</option>
-					{/each}
-				</select>
-			{/if}
-			<button
-				type="button"
-				class="button"
-				disabled={!openvasTarget.trim() ||
-					openvasStatus === 'starting' ||
-					openvasStatus === 'running'}
-				onclick={startOpenvasScan}
-			>
-				{openvasStatus === 'starting' || openvasStatus === 'running'
-					? '⏳ กำลังสแกน...'
-					: '🛡️ เริ่มสแกน'}
-			</button>
-		</div>
-
-		{#if openvasStatus === 'running'}
-			<div class="status">
-				<span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span>
-				<button type="button" class="button" disabled={openvasCancelling} onclick={cancelOpenvasScan}>
-					{openvasCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
-				</button>
-			</div>
-			{#if openvasPercent !== null}
-				<div class="progress-bar">
-					<div class="progress-fill" style="width:{openvasPercent}%"></div>
-					<span class="progress-label">{openvasPercent}%</span>
-				</div>
-			{/if}
-		{:else if openvasStatus === 'error'}
-			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
-			<div class="err-box">{openvasError}</div>
-		{:else if openvasStatus === 'done' && openvasResult}
-			{#if openvasResult.duplicate}
-				<div class="status">
-					<span class="badge">{t($lang, 'home_already_imported')}</span>
-					<a class="button" href="/reports/{openvasResult.existingReportId}">
-						{t($lang, 'home_view_original')}
-					</a>
-				</div>
-			{:else}
-				<div class="status">
-					<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
-					<span style="color:var(--muted)">{openvasResult.insertedCount} finding(s)</span>
-					<a class="button" href="/reports/{openvasResult.reportId}">{t($lang, 'home_view_detail')}</a>
-				</div>
-			{/if}
 		{/if}
-	</div>
-
-	<div class="panel">
-		<h2><img src={zapLogo} alt="ZAP" class="tool-logo" /> สั่งสแกนด้วย OWASP ZAP</h2>
-		<p class="sub">
-			ใส่ URL เต็มรูปแบบของเว็บเป้าหมาย (เช่น https://example.kku.ac.th) คั่นด้วย comma
-			เพื่อสแกนหลายเว็บพร้อมกัน (ค่าเริ่มต้นสูงสุด 5 เว็บพร้อมกัน) ระบบจะสั่ง ZAP crawl
-			หน้าเว็บ (spider) แล้วสแกนหาช่องโหว่ (active scan) ของแต่ละเว็บไปพร้อม ๆ กัน แล้วดึงผลกลับมา import
-			เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ (การปัก DNS → IP ใช้ได้ทีละ 1 เว็บ)
-		</p>
-		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
-			<input
-				type="text"
-				bind:value={zapTarget}
-				placeholder="เช่น https://example.kku.ac.th หรือ https://10.1.2.3"
-				disabled={zapStatus === 'starting' || zapStatus === 'running'}
-				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			<input
-				type="text"
-				bind:value={zapPinIp}
-				placeholder="ปัก DNS → IP (ไม่บังคับ) เช่น 10.101.102.34"
-				title="สแกน URL ด้านบนด้วยชื่อจริง แต่บังคับให้ชื่อนั้น resolve ไปที่ IP นี้ (แบบ hosts file) — ใช้เมื่อชื่อเดียวมีหลายเครื่อง"
-				disabled={zapStatus === 'starting' || zapStatus === 'running'}
-				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			{#if ipGroups.length > 0}
-				<select
-					onchange={(e) => {
-						applyGroup(e.target.value, (v) => (zapTarget = v));
-						e.target.value = '';
-					}}
-					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-				>
-					<option value="">📁 เลือกกลุ่ม IP...</option>
-					{#each ipGroups as group (group.id)}
-						<option value={group.id}>{group.name}</option>
-					{/each}
-				</select>
-			{/if}
-			<button
-				type="button"
-				class="button"
-				disabled={!zapTarget.trim() || zapStatus === 'starting' || zapStatus === 'running'}
-				onclick={startZapScan}
-			>
-				{zapStatus === 'starting' || zapStatus === 'running' ? '⏳ กำลังสแกน...' : '⚡ เริ่มสแกน'}
-			</button>
-		</div>
-		<HostResolver
-			disabled={zapStatus === 'starting' || zapStatus === 'running'}
-			onpick={(c) => {
-				zapTarget = `https://${c.host}`;
-				zapPinIp = c.ip;
-			}}
-		/>
-
-		{#if zapStatus === 'running'}
-			<div class="status">
-				<span class="badge">{ZAP_PHASE_LABEL[zapPhase] ?? 'กำลังสแกน...'}</span>
-				{#if zapProgress}
-					<span style="color:var(--muted)">({zapProgress})</span>
-				{/if}
-				<button type="button" class="button" disabled={zapCancelling} onclick={cancelZapScan}>
-					{zapCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
-				</button>
-			</div>
-			{#if zapPercent !== null}
-				<div class="progress-bar">
-					<div class="progress-fill" style="width:{zapPercent}%"></div>
-					<span class="progress-label">{zapPercent}%</span>
-				</div>
-			{/if}
-		{:else if zapStatus === 'error'}
-			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
-			<div class="err-box">{zapError}</div>
-		{:else if zapStatus === 'done' && zapResult}
-			{#if zapResult.duplicate}
-				<div class="status">
-					<span class="badge">{t($lang, 'home_already_imported')}</span>
-					<a class="button" href="/reports/{zapResult.existingReportId}">
-						{t($lang, 'home_view_original')}
-					</a>
-				</div>
-			{:else}
-				<div class="status">
-					<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
-					<span style="color:var(--muted)">{zapResult.insertedCount} finding(s)</span>
-					<a class="button" href="/reports/{zapResult.reportId}">{t($lang, 'home_view_detail')}</a>
-				</div>
-			{/if}
-		{/if}
-	</div>
-
-	<div class="panel">
-		<h2><img src={nucleiLogo} alt="Nuclei" class="tool-logo" /> สั่งสแกนด้วย Nuclei</h2>
-		<p class="sub">
-			พิมพ์ IP หรือโดเมนของเป้าหมาย (คั่นด้วย comma เพื่อสแกนหลาย host พร้อมกัน) ระบบจะสั่ง Nuclei
-			เริ่มสแกน แล้วดึงผลกลับมา import เข้าระบบให้อัตโนมัติเมื่อสแกนเสร็จ ใส่ CVE ID (เช่น
-			CVE-2021-44228) ถ้าต้องการสแกนหาช่องโหว่เจาะจงตัวเดียว — เว้นว่างไว้เพื่อสแกนด้วยชุด template
-			เต็มรูปแบบ
-		</p>
-		<div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
-			<input
-				type="text"
-				bind:value={nucleiTarget}
-				placeholder="เช่น 10.1.2.3 หรือ https://example.kku.ac.th"
-				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
-				style="flex:1; min-width:220px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			<input
-				type="text"
-				bind:value={nucleiCveId}
-				placeholder="CVE ID (ไม่บังคับ) เช่น CVE-2021-44228"
-				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
-				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			<input
-				type="text"
-				bind:value={nucleiHostHeader}
-				placeholder="Host header (ไม่บังคับ) เช่น web.kku.ac.th"
-				title="ยิงที่ IP ด้านบน แต่ส่งชื่อเว็บนี้เป็น Host header — ใช้เมื่อ IP เดียวมีหลายเว็บ"
-				disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
-				style="flex:0 0 240px; padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-			/>
-			{#if ipGroups.length > 0}
-				<select
-					onchange={(e) => {
-						applyGroup(e.target.value, (v) => (nucleiTarget = v));
-						e.target.value = '';
-					}}
-					style="padding:.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text)"
-				>
-					<option value="">📁 เลือกกลุ่ม IP...</option>
-					{#each ipGroups as group (group.id)}
-						<option value={group.id}>{group.name}</option>
-					{/each}
-				</select>
-			{/if}
-			<button
-				type="button"
-				class="button"
-				disabled={!nucleiTarget.trim() ||
-					nucleiStatus === 'starting' ||
-					nucleiStatus === 'running'}
-				onclick={startNucleiScan}
-			>
-				{nucleiStatus === 'starting' || nucleiStatus === 'running'
-					? '⏳ กำลังสแกน...'
-					: '🎯 เริ่มสแกน'}
-			</button>
-		</div>
-		<HostResolver
-			disabled={nucleiStatus === 'starting' || nucleiStatus === 'running'}
-			onpick={(c) => {
-				nucleiTarget = c.ip;
-				nucleiHostHeader = c.host;
-			}}
-		/>
-
-		{#if nucleiStatus === 'running'}
-			<div class="status">
-				<span class="badge">กำลังสแกน... ระบบจะดึงผลอัตโนมัติเมื่อเสร็จ</span>
-				<button type="button" class="button" disabled={nucleiCancelling} onclick={cancelNucleiScan}>
-					{nucleiCancelling ? '⏳ กำลังยกเลิก...' : '⛔ ยกเลิกสแกน'}
-				</button>
-			</div>
-			{#if nucleiPercent !== null}
-				<div class="progress-bar">
-					<div class="progress-fill" style="width:{nucleiPercent}%"></div>
-					<span class="progress-label">{nucleiPercent}%</span>
-				</div>
-			{/if}
-		{:else if nucleiStatus === 'error'}
-			<div class="status"><span class="badge err">สแกนล้มเหลว</span></div>
-			<div class="err-box">{nucleiError}</div>
-		{:else if nucleiStatus === 'done' && nucleiResult}
-			{#if nucleiResult.duplicate}
-				<div class="status">
-					<span class="badge">{t($lang, 'home_already_imported')}</span>
-					<a class="button" href="/reports/{nucleiResult.existingReportId}">
-						{t($lang, 'home_view_original')}
-					</a>
-				</div>
-			{:else}
-				<div class="status">
-					<span class="badge ok">นำเข้าผลสแกนสำเร็จ</span>
-					<span style="color:var(--muted)">{nucleiResult.insertedCount} finding(s)</span>
-					<a class="button" href="/reports/{nucleiResult.reportId}">{t($lang, 'home_view_detail')}</a>
-				</div>
-			{/if}
-		{/if}
-	</div>
-
-	<div class="panel">
-		<div class="panel-head">
-			<h2>📋 สถานะสแกน</h2>
-			<button type="button" class="button" onclick={() => invalidateAll()}>🔄 รีเฟรช</button>
-		</div>
-		{#if data.jobs.length === 0}
-			<p class="sub">ยังไม่มีประวัติการสั่งสแกน</p>
-		{:else}
-			<table class="jobs-table">
-				<thead>
-					<tr>
-						<th>เครื่องมือ</th>
-						<th>Target</th>
-						<th>สถานะ</th>
-						<th>สั่งโดย</th>
-						<th>เมื่อ</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each data.jobs as job (job.id)}
-						<tr>
-							<td>{TOOL_LABEL[job.tool] ?? job.tool}{job.extra ? ` (${job.extra})` : ''}</td>
-							<td class="mono">
-								{job.target}
-								{#if job.resolved_targets && job.resolved_targets !== job.target}
-									<div class="resolved-targets-note">📋 {job.resolved_targets}</div>
-								{/if}
-							</td>
-							<td>
-								<span class="badge" class:ok={job.status === 'done'} class:err={job.status === 'error'}>
-									{STATUS_LABEL[job.status] ?? job.status}
-								</span>
-								{#if job.status === 'running' && typeof job.livePercent === 'number'}
-									<div class="progress-bar progress-bar-sm">
-										<div class="progress-fill" style="width:{job.livePercent}%"></div>
-										<span class="progress-label">{job.livePercent}%</span>
-									</div>
-								{/if}
-								{#if job.status === 'error' && job.error_message}
-									<div class="job-error">{job.error_message}</div>
-								{/if}
-							</td>
-							<td>{job.created_by ?? '—'}</td>
-							<td class="mono">{new Date(job.created_at).toLocaleString('th-TH')}</td>
-							<td>
-								{#if job.report_id}
-									<a class="button" href="/reports/{job.report_id}">ดูผล</a>
-								{/if}
-								{#if job.status === 'running' && job.tool !== 'nessus'}
-									<button
-										type="button"
-										class="button"
-										disabled={cancellingJobs.has(job.id)}
-										onclick={() => cancelHistoryJob(job)}
-									>
-										{cancellingJobs.has(job.id) ? '⏳' : '⛔ ยกเลิก'}
-									</button>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		{/if}
-	</div>
+	</details>
 </div>
 
 <style>
 	.wrap {
-		max-width: 820px;
+		max-width: 1100px;
 		margin: 2rem auto;
 		padding: 0 1.25rem;
 	}
@@ -897,163 +1018,351 @@
 	.back-link:hover {
 		text-decoration: underline;
 	}
+	.page-head {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
 	h1 {
 		font-size: 1.3rem;
-		margin-bottom: 0.5rem;
+		margin: 0;
 	}
-	.hint {
-		color: var(--muted);
-		font-size: 0.9rem;
+	h2 {
+		font-size: 1rem;
+		margin: 0;
+	}
+
+	/* Two columns: form | live status. Stacks on narrow screens. */
+	.split {
+		display: grid;
+		grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+		gap: 1.25rem;
+		align-items: start;
 		margin-bottom: 1.25rem;
 	}
+	@media (max-width: 860px) {
+		.split {
+			grid-template-columns: 1fr;
+		}
+	}
+
 	.panel {
 		background: var(--panel-bg, var(--code-bg));
 		border: 1px solid var(--border);
 		border-radius: 10px;
-		padding: 1.25rem;
+		padding: 1.1rem 1.25rem;
+		min-width: 0;
+	}
+	.panel + .panel,
+	section.panel,
+	details.panel {
 		margin-bottom: 1.25rem;
 	}
-	.panel h2 {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		font-size: 1.05rem;
-		margin-bottom: 0.5rem;
+	.split > .panel {
+		margin-bottom: 0;
 	}
 	.panel-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.75rem;
+		gap: 0.5rem;
+		margin-bottom: 0.6rem;
 	}
-	.panel-head h2 {
-		margin-bottom: 0;
+	.recent-head {
+		margin-top: 1.1rem;
+		padding-top: 0.9rem;
+		border-top: 1px solid var(--border);
 	}
-	.jobs-table {
-		width: 100%;
-		table-layout: fixed;
-		border-collapse: collapse;
-		font-size: 0.85rem;
-	}
-	.jobs-table th,
-	.jobs-table td {
-		text-align: left;
-		padding: 0.5rem 0.6rem;
+
+	/* Tool tabs */
+	.tabs {
+		display: flex;
+		gap: 0.25rem;
 		border-bottom: 1px solid var(--border);
-		vertical-align: top;
-		overflow-wrap: break-word;
+		margin: -0.2rem 0 1rem;
+		overflow-x: auto;
 	}
-	.jobs-table th:nth-child(1),
-	.jobs-table td:nth-child(1) {
-		width: 14%;
-	}
-	.jobs-table th:nth-child(2),
-	.jobs-table td:nth-child(2) {
-		width: 22%;
-	}
-	.jobs-table th:nth-child(3),
-	.jobs-table td:nth-child(3) {
-		width: 28%;
-	}
-	.jobs-table th:nth-child(4),
-	.jobs-table td:nth-child(4) {
-		width: 16%;
-	}
-	.jobs-table th:nth-child(5),
-	.jobs-table td:nth-child(5) {
-		width: 12%;
-	}
-	.jobs-table th:nth-child(6),
-	.jobs-table td:nth-child(6) {
-		width: 8%;
-	}
-	.mono {
-		font-family: var(--mono, monospace);
-		word-break: break-all;
-	}
-	.job-error {
-		margin-top: 0.35rem;
-		padding: 0.4rem 0.5rem;
-		border-radius: 6px;
-		background: rgba(241, 154, 154, 0.1);
-		color: #f19a9a;
-		font-size: 0.76rem;
-		line-height: 1.4;
-		word-break: break-word;
-	}
-	.resolved-targets-note {
-		margin-top: 0.25rem;
+	.tabs button {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: none;
+		border: 0;
+		border-bottom: 2px solid transparent;
 		color: var(--muted);
-		font-size: 0.76rem;
-		word-break: break-word;
+		padding: 0.5rem 0.75rem 0.6rem;
+		cursor: pointer;
+		font: inherit;
+		white-space: nowrap;
+		position: relative;
 	}
-	.tool-logo {
-		height: 24px;
+	.tabs button:hover:not(:disabled) {
+		color: var(--text);
+	}
+	.tabs button[aria-selected='true'] {
+		color: var(--text);
+		border-bottom-color: var(--accent);
+	}
+	.tabs button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.tab-logo {
+		height: 20px;
 		width: auto;
-		max-width: 110px;
+		max-width: 60px;
 		object-fit: contain;
+	}
+	.tab-text {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.15;
+		text-align: left;
+	}
+	.tab-text b {
+		font-size: 0.88rem;
+	}
+	.tab-text small {
+		font-size: 0.7rem;
+		color: var(--muted);
+	}
+	.dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: #e0b050;
+	}
+
+	.tab-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
 	}
 	.sub {
 		color: var(--muted);
-		font-size: 0.88rem;
-		margin-bottom: 0.9rem;
+		font-size: 0.86rem;
+		margin: 0 0 0.25rem;
 	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+		font-weight: 600;
+	}
+	label.field[for$='-target'] {
+		flex-direction: row;
+		justify-content: space-between;
+	}
+	.count {
+		font-weight: 400;
+		font-variant-numeric: tabular-nums;
+	}
+	textarea,
+	input,
+	.inline-select {
+		font: inherit;
+		font-size: 0.88rem;
+		padding: 0.5rem 0.6rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--bg);
+		color: var(--text);
+		min-width: 0;
+	}
+	textarea {
+		resize: vertical;
+		font-family: var(--mono, monospace);
+		font-size: 0.84rem;
+	}
+	.row,
+	.actions,
 	.status {
-		margin-top: 0.9rem;
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
 		flex-wrap: wrap;
 	}
-	.progress-bar {
-		position: relative;
+	.actions {
+		margin-top: 0.4rem;
+		padding-top: 0.8rem;
+		border-top: 1px solid var(--border);
+	}
+	.spacer {
+		flex: 1;
+	}
+	.hint {
+		font-size: 0.76rem;
+		color: var(--muted);
+	}
+
+	details.adv {
+		border: 1px dashed var(--border);
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+	}
+	details.adv summary {
+		cursor: pointer;
+		font-size: 0.84rem;
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.adv-grid {
+		display: grid;
+		grid-template-columns: minmax(180px, 240px) 1fr;
+		gap: 0.75rem;
+		align-items: end;
 		margin-top: 0.6rem;
-		height: 1.4rem;
+	}
+	@media (max-width: 560px) {
+		.adv-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+	.adv-grid .hint {
+		margin: 0;
+	}
+
+	/* Live sidebar */
+	.live {
+		position: sticky;
+		top: 1rem;
+	}
+	@media (max-width: 860px) {
+		.live {
+			position: static;
+		}
+	}
+	.empty {
+		color: var(--muted);
+		font-size: 0.84rem;
+		margin: 0.25rem 0 0.5rem;
+	}
+	.jobs {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.job {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		padding: 0.6rem 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.job:last-child {
+		border-bottom: 0;
+	}
+	.job-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.86rem;
+	}
+	.job-title {
+		display: flex;
+		gap: 0.4rem;
+		align-items: baseline;
+		min-width: 0;
+	}
+	.job-target {
+		font-family: var(--mono, monospace);
+		font-size: 0.74rem;
+		color: var(--muted);
+		word-break: break-all;
+	}
+	.job-target.inline {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		word-break: normal;
+	}
+	.job-foot {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.sub-targets {
+		list-style: none;
+		margin: 0.15rem 0 0;
+		padding: 0 0 0 0.6rem;
+		border-left: 2px solid var(--border);
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+	.sub-targets li {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto 2.6rem;
+		gap: 0.4rem;
+		align-items: center;
+		font-size: 0.72rem;
+	}
+	.sub-targets code {
+		font-family: var(--mono, monospace);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		color: var(--muted);
+	}
+	.job-error {
+		padding: 0.35rem 0.5rem;
+		border-radius: 6px;
+		background: rgba(241, 154, 154, 0.1);
+		color: #f19a9a;
+		font-size: 0.74rem;
+		line-height: 1.4;
+		word-break: break-word;
+	}
+
+	/* Progress + pills */
+	.bar {
+		height: 8px;
 		border-radius: 999px;
-		background: var(--code-bg);
+		background: var(--bg);
 		border: 1px solid var(--border);
 		overflow: hidden;
 	}
-	.progress-fill {
+	.bar i {
+		display: block;
 		height: 100%;
 		background: var(--accent);
 		transition: width 0.4s ease;
 	}
-	.progress-label {
-		position: absolute;
-		inset: 0;
-		display: flex;
+	.bar-sm {
+		height: 6px;
+	}
+	.pill {
+		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--text);
-		mix-blend-mode: difference;
-	}
-	.progress-bar-sm {
-		height: 1.1rem;
-		max-width: 160px;
-		margin-top: 0.35rem;
-	}
-	.progress-bar-sm .progress-label {
-		font-size: 0.65rem;
-	}
-	.badge {
-		padding: 0.2rem 0.6rem;
+		padding: 0.15rem 0.55rem;
 		border-radius: 999px;
-		background: var(--code-bg);
-		font-size: 0.8rem;
+		background: var(--bg);
+		font-size: 0.74rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
-	.badge.ok {
+	.pill.ok {
 		background: #16321f;
 		color: #8be3a6;
 	}
-	.badge.err {
+	.pill.err {
 		background: #3a1a1a;
 		color: #f19a9a;
 	}
+	.pill.run {
+		background: rgba(224, 176, 80, 0.15);
+		color: #e0b050;
+	}
 	.err-box {
-		margin-top: 0.5rem;
 		padding: 0.6rem 0.9rem;
 		border-radius: 6px;
 		background: #3a1a1a;
@@ -1061,6 +1370,8 @@
 		font-size: 0.85rem;
 		white-space: pre-wrap;
 	}
+
+	/* Buttons */
 	.button {
 		display: inline-block;
 		padding: 0.45rem 0.9rem;
@@ -1069,14 +1380,104 @@
 		background: var(--bg);
 		color: var(--text);
 		cursor: pointer;
-		font-size: 0.88rem;
+		font: inherit;
+		font-size: 0.86rem;
 		text-decoration: none;
+		white-space: nowrap;
 	}
-	.button:hover {
+	.button:hover:not(:disabled) {
 		border-color: var(--accent);
 	}
 	.button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+	.button.primary {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--bg);
+		font-weight: 600;
+	}
+	.button.big {
+		padding: 0.6rem 1.2rem;
+		font-size: 0.92rem;
+	}
+	.button.ghost {
+		background: none;
+		border-color: transparent;
+		color: var(--accent);
+		padding: 0.2rem 0.3rem;
+		font-size: 0.8rem;
+	}
+	.button.full {
+		width: 100%;
+		margin-top: 0.75rem;
+	}
+
+	/* History + groups tables */
+	.table-wrap {
+		overflow-x: auto;
+	}
+	.jobs-table,
+	.groups-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.84rem;
+	}
+	.jobs-table th,
+	.jobs-table td,
+	.groups-table th,
+	.groups-table td {
+		text-align: left;
+		padding: 0.5rem 0.6rem;
+		border-bottom: 1px solid var(--border);
+		vertical-align: top;
+		overflow-wrap: break-word;
+	}
+	.jobs-table td .bar {
+		max-width: 160px;
+		margin-top: 0.35rem;
+	}
+	.mono {
+		font-family: var(--mono, monospace);
+		word-break: break-all;
+	}
+	.resolved-targets-note {
+		margin-top: 0.25rem;
+		color: var(--muted);
+		font-size: 0.76rem;
+		word-break: break-word;
+	}
+
+	details.groups summary {
+		cursor: pointer;
+		list-style: none;
+	}
+	details.groups summary::-webkit-details-marker {
+		display: none;
+	}
+	details.groups summary h2::before {
+		content: '▸ ';
+		color: var(--muted);
+	}
+	details.groups[open] summary h2::before {
+		content: '▾ ';
+	}
+	details.groups[open] summary {
+		margin-bottom: 0.6rem;
+	}
+	.group-form {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		margin-bottom: 0.75rem;
+	}
+	.group-form input {
+		flex: 0 0 220px;
+	}
+	.group-form textarea {
+		flex: 1;
+		min-width: 220px;
 	}
 </style>

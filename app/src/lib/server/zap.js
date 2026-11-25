@@ -424,6 +424,24 @@ export function peekPercent(jobId) {
 }
 
 /**
+ * Per-target progress of a running job, for showing each URL's own bar
+ * when several sites scan concurrently. Never consumes the job's result.
+ * @param {string} jobId
+ * @returns {{ url: string, phase: string, percent: number, done: boolean, error: string|null }[]|null}
+ */
+export function peekTargets(jobId) {
+	const job = jobs.get(jobId);
+	if (!job || job.status !== 'running') return null;
+	return [...job.targets.entries()].map(([url, tr]) => ({
+		url,
+		phase: tr.phase,
+		percent: tr.percent || 0,
+		done: tr.done,
+		error: tr.error
+	}));
+}
+
+/**
  * Whether this server process still tracks the job. Unlike getScanStatus
  * this never consumes a finished result. A job launched before the last
  * server restart is lost from memory and can never report back.
