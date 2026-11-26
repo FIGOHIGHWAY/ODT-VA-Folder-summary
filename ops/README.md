@@ -52,8 +52,12 @@ Scan traffic leaves from these addresses — use them for firewall allowlists.
 
 ## Service API (soct.kku.ac.th)
 
-Other ODT systems can start Nuclei (CVE-targeted only) and Nessus scans and
-read back their findings at `/api/service/*` — nothing else. Each caller is a
+Other ODT systems can start Nuclei scans (CVE-targeted only) and read back
+their findings at `/api/service/*` — nothing else. Nessus is off for callers
+(`SERVICE_NESSUS_ENABLED`) while its license has `scan_api` disabled. Targets
+must be inside `SERVICE_ALLOWED_NETS` / `SERVICE_ALLOWED_DOMAINS` (default
+10.0.0.0/8 and *.kku.ac.th), and each caller may have at most
+`SERVICE_MAX_RUNNING` (2) scans running at once. Each caller is a
 line in `SERVICE_TOKENS` in `.env` (token SHA-256 + the caller's source IP),
 see `.env.example`. The caller connects to this host directly
 (`https://10.101.118.167`, Host `odtstvascan.kku.ac.th`), not through the

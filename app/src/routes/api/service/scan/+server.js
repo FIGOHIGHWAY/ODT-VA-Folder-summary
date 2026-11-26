@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { startServiceScan } from '$lib/server/serviceScan.js';
+import { startServiceScan, ServiceInputError } from '$lib/server/serviceScan.js';
 
 // Service API: start a scan for another ODT system (auth in hooks.server.js).
 // Body: { tool: 'nuclei'|'nessus', targets: string[], cveId?: string, label?: string }
@@ -12,11 +12,15 @@ export async function POST({ request, locals }) {
 	}
 	try {
 		const r = await startServiceScan(body ?? {}, locals.service);
-		console.log(`[service] ${locals.service} สั่งสแกน ${r.tool} ${r.jobId} (${(body.targets ?? []).length} target${body.cveId ? ' · ' + body.cveId : ''})`);
+		console.log(
+			`[service] ${locals.service} สั่งสแกน ${r.tool} ${r.jobId} (${(body.targets ?? []).length} target${body.cveId ? ' · ' + body.cveId : ''})`
+		);
 		return json(r);
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		const status = /ไม่ได้ตั้งค่า|ECONN|fetch failed|HTTP 5/.test(message) ? 502 : 400;
-		return json({ error: message }, { status });
+		if (err instanceof ServiceInputError) return json({ error: err.message }, { status: err.status });
+		// Internal failures (SSH, scanner APIs) stay in our log; the caller gets
+		// a generic message rather than our hosts, paths or stack details.
+		console.error(`[service] ${locals.service} สั่งสแกนไม่สำเร็จ:`, err);
+		return json({ error: 'ระบบสแกนขัดข้อง ลองใหม่ภายหลัง หรือแจ้งทีม VA Scan' }, { status: 502 });
 	}
 }

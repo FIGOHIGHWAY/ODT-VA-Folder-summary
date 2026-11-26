@@ -8,6 +8,7 @@ export async function GET({ params, locals }) {
 		if (!r) return json({ error: 'ไม่พบงานสแกนนี้' }, { status: 404 });
 		return json(r);
 	} catch (err) {
-		return json({ error: err instanceof Error ? err.message : String(err) }, { status: 502 });
+		console.error(`[service] ${locals.service} อ่านสถานะ ${params.tool}/${params.id} ไม่สำเร็จ:`, err);
+		return json({ error: 'อ่านสถานะงานสแกนไม่สำเร็จ ลองใหม่ภายหลัง' }, { status: 502 });
 	}
 }

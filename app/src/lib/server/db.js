@@ -1087,6 +1087,19 @@ export async function getScanJobByExternalId(tool, externalId) {
 }
 
 /**
+ * How many scans one caller (scan_jobs.created_by) has running right now —
+ * the service API caps this per calling system.
+ * @param {string} createdBy
+ */
+export async function countRunningScanJobsBy(createdBy) {
+	const { rows } = await pool.query(
+		`SELECT count(*)::int AS n FROM scan_jobs WHERE created_by = $1 AND status = 'running'`,
+		[createdBy]
+	);
+	return rows[0]?.n ?? 0;
+}
+
+/**
  * List the most recent scan jobs across all tools, for the scan history view.
  * @param {number} limit
  */
