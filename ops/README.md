@@ -25,12 +25,16 @@ Every deploy, skip and rollback is written to `logs/deploy.log` on the server:
   deploy: https://github.com/FIGOHIGHWAY/ODT-VA-Folder-summary/actions
 - **Never restarts while a scan is running.** It waits and retries on the next
   tick.
-- **Holds commits that touch `app/migrations/`.** Migrations are applied by
-  hand, then the deploy is finished by hand (check no scan is running first):
+- **Holds commits that touch `app/migrations/`.** Finish those with one
+  command; it refuses while a scan is running or before CI has passed, lists
+  the migrations, asks before changing anything, applies them in order (each
+  in one transaction), rebuilds, and rolls the code back if the app doesn't
+  come up:
 
-      cd ~/odt-va-scan && git merge --ff-only origin/main
-      docker exec -i odt-va-scan-db-1 psql -U postgres -d va_scan -v ON_ERROR_STOP=1 < app/migrations/0NN_name.sql
-      docker compose up -d --build
+      ~/odt-va-scan/ops/deploy-manual.sh
+
+  The same script deploys any commit immediately instead of waiting for the
+  next 5-minute tick.
 
 - **Rolls back** to the previous commit if `/login` doesn't answer 200 after
   the rebuild, and won't retry that commit until a newer one is pushed.
