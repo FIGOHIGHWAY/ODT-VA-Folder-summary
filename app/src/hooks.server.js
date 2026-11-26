@@ -1,6 +1,7 @@
 import { building, dev } from '$app/environment';
 import { getSession, SESSION_COOKIE } from '$lib/server/session.js';
 import { startMonitor } from '$lib/server/monitor.js';
+import { authenticateService } from '$lib/server/serviceAuth.js';
 import {
 	canUpload,
 	canGenerateReport,
@@ -37,6 +38,30 @@ function findRoleGate(pathname) {
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
+	// Service API (other ODT systems, e.g. soct.kku.ac.th): token + source IP
+	// only, never a browser session — see lib/server/serviceAuth.js.
+	if (event.url.pathname.startsWith('/api/service/')) {
+		const auth = authenticateService(
+			event.request.headers.get('authorization'),
+			event.request.headers.get('x-forwarded-for')
+		);
+		if (!auth.ok) {
+			return new Response(JSON.stringify({ error: auth.error }), {
+				status: auth.status,
+				headers: { 'Content-Type': 'application/json' }
+			});
+		}
+		event.locals.user = {
+			sub: `svc:${auth.name}`,
+			name: `${auth.name} (service)`,
+			email: `svc:${auth.name}`,
+			role: 'soc',
+			mfaStatus: 'verified'
+		};
+		event.locals.service = auth.name;
+		return resolve(event);
+	}
+
 	const sessionId = event.cookies.get(SESSION_COOKIE);
 	if (sessionId) {
 		try {

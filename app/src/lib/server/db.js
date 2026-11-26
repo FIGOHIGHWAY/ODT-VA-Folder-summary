@@ -1072,6 +1072,21 @@ export async function updateScanJobByExternalId(tool, externalId, { status, repo
 }
 
 /**
+ * One scan job by (tool, externalId) — used by the service API to report a
+ * scan's state to the system that launched it.
+ * @param {'nessus'|'openvas'|'nuclei'} tool
+ * @param {string} externalId
+ */
+export async function getScanJobByExternalId(tool, externalId) {
+	const { rows } = await pool.query(
+		`SELECT id, tool, target, external_id, extra, status, report_id, error_message, created_by, created_at, updated_at
+		 FROM scan_jobs WHERE tool = $1 AND external_id = $2 ORDER BY id DESC LIMIT 1`,
+		[tool, externalId]
+	);
+	return rows[0] ?? null;
+}
+
+/**
  * List the most recent scan jobs across all tools, for the scan history view.
  * @param {number} limit
  */

@@ -5,6 +5,8 @@ declare global {
 		// interface Error {}
 		interface Locals {
 			user: { sub: string; name?: string | null; email?: string | null } | null;
+			/** Name of the calling system on /api/service/* (see lib/server/serviceAuth.js). */
+			service?: string;
 		}
 		// interface PageData {}
 		// interface PageState {}

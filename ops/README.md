@@ -50,6 +50,20 @@ Scan traffic leaves from these addresses — use them for firewall allowlists.
 | Nuclei | 10.101.118.178 | SSH, runs the CLI |
 | Nessus | 10.101.118.179 | HTTPS API on 8834 |
 
+## Service API (soct.kku.ac.th)
+
+Other ODT systems can start Nuclei (CVE-targeted only) and Nessus scans and
+read back their findings at `/api/service/*` — nothing else. Each caller is a
+line in `SERVICE_TOKENS` in `.env` (token SHA-256 + the caller's source IP),
+see `.env.example`. The caller connects to this host directly
+(`https://10.101.118.167`, Host `odtstvascan.kku.ac.th`), not through the
+front proxy, because the source IP is checked. Scans show up in the normal
+scan history with `created_by = svc:<name>`.
+
+    # on the caller: make a token and keep it in its own .env
+    # here: add  soct=<sha256>@10.101.118.169  to SERVICE_TOKENS, then
+    docker compose up -d app
+
 ## Reboots
 
 Kernel updates need a reboot, which is not automatic (it would drop running
